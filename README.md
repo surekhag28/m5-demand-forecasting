@@ -28,6 +28,11 @@ The project uses the M5 Forecasting Accuracy dataset, which contains Walmart ret
 
 Dataset link: [m5-forecasting](https://www.kaggle.com/competitions/m5-forecasting-accuracy)
 
+## Architecture
+
+High level architecture at every layer in the platform - data ingestion, wrangling etc
+![M5 Demand Forecasting Architecture](docs/images/architecture.png)
+
 ## Project Structure
 
 ```text
