@@ -136,6 +136,8 @@ def run_ingestion():
     prices = load_price()
     validate_bronze_price(prices, PRICE_COLUMNS, PRICES_ROWS)
 
+    print("Bronze data quality checks completed")
+
     total_rows = 0
     chunk_number = 0
     summary = {}

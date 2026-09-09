@@ -205,6 +205,8 @@ def validated_silver_sales() -> None:
     validate_silver_null_price_before_launch()
     validate_silver_null_price_before_launch()
 
+    print("Silver data quality checks completed")
+
 
 # if __name__ == "__main__":
 #     validate_silver_invalid_price()
