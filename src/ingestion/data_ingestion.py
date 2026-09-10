@@ -12,6 +12,7 @@ from src.config.config import (
     PRICES_PATH,
     PRICES_ROWS,
     PROCESSED_DIR,
+    SALES_MELTED_ROWS,
     SALES_PATH,
 )
 from src.data_quality.checks import (
@@ -19,6 +20,29 @@ from src.data_quality.checks import (
     validate_bronze_price,
     validated_silver_sales,
 )
+from src.utils.utils import memory_usage
+
+
+def get_optimised_data(data: pd.DataFrame) -> pd.DataFrame:
+
+    dtype_mapping = {"float": "float", "int": "unsigned"}
+
+    optimised_data = data.copy()
+
+    for dtype in ["float", "int", "str"]:
+        if dtype == "float" or dtype == "int":
+            data_dtype = data.select_dtypes(include=dtype)
+            data_converted_dtype = data_dtype.apply(
+                pd.to_numeric, downcast=dtype_mapping[dtype]
+            )
+        else:
+            obj_columns = data.select_dtypes(include="str").columns.to_list()
+            for col in obj_columns:
+                optimised_data[col] = data[col].astype("category")
+
+        optimised_data[data_converted_dtype.columns] = data_converted_dtype
+
+    return optimised_data
 
 
 def load_calendar() -> pd.DataFrame:
@@ -29,8 +53,19 @@ def load_calendar() -> pd.DataFrame:
         print(f"Unable to read file: {CALENDAR_PATH}")
         raise
 
+    print(
+        f"Memory usage of calendar dataset before downcasting: {memory_usage(calendar)}"
+    )
+
     calendar["date"] = pd.to_datetime(calendar["date"])
-    return calendar
+
+    optimsed_calendar = get_optimised_data(calendar)
+
+    print(
+        f"Memory usage of calendar dataset after downcasting: {memory_usage(calendar)}"
+    )
+
+    return optimsed_calendar
 
 
 def load_price() -> pd.DataFrame:
@@ -41,12 +76,15 @@ def load_price() -> pd.DataFrame:
         print(f"Unable to read file: {PRICES_PATH}")
         raise
 
-    prices["store_id"] = prices["store_id"].astype("category")
-    prices["item_id"] = prices["item_id"].astype("category")
-    prices["wm_yr_wk"] = prices["wm_yr_wk"].astype("int16")
-    prices["sell_price"] = prices["sell_price"].astype("float32")
+    print(f"Memory usage of prices dataset before downcasting: {memory_usage(prices)}")
 
-    return prices
+    optimised_prices = get_optimised_data(prices)
+
+    print(
+        f"Memory usage of prices dataset after downcasting: {memory_usage(optimised_prices)}"
+    )
+
+    return optimised_prices
 
 
 def process_sales_chunk(
@@ -91,10 +129,10 @@ def process_sales_chunk(
         validate="many_to_one",
     )
 
-    sales_long.drop(columns=["d", "snap_CA", "snap_TX", "snap_WI"], inplace=True)
+    sales_long.drop(columns=["id", "d", "snap_CA", "snap_TX", "snap_WI"], inplace=True)
+    sales_long["sales"] = pd.to_numeric(sales_long["sales"], downcast="unsigned")
 
     final_colums = [
-        "id",
         "item_id",
         "dept_id",
         "cat_id",
@@ -170,7 +208,7 @@ def run_ingestion():
         print(f"Failed to process file: {e}")
         raise
 
-    validated_silver_sales()
+    validated_silver_sales(SALES_MELTED_ROWS)
 
     summary = {
         "total_sales_data": total_rows,

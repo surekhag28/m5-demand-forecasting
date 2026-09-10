@@ -43,6 +43,23 @@ def validate_bronze_sales(sales_chunk: pd.DataFrame, sales_columns: list) -> Non
     assert not sales_chunk.empty, "Bronze DQ failed: sales chunk is empty"
 
 
+def validate_silver_sales_total_records(expected_rows: int) -> None:
+
+    query = """
+
+            select count(*) as total_observations
+            from read_parquet(?)
+            """
+
+    sales_count = (
+        duckdb.connect().execute(query, [f"{PROCESSED_DIR}/*.parquet"]).fetchone()[0]
+    )
+
+    assert sales_count == expected_rows, (
+        f"Silver DQ failed: expected rows: {expected_rows}, but got {sales_count}"
+    )
+
+
 def validate_silver_no_duplicates() -> None:
     # no duplicate (item, store, date) rows
     query = """
@@ -196,10 +213,11 @@ def validate_silver_null_price_after_launch() -> None:
     )
 
 
-def validated_silver_sales() -> None:
+def validated_silver_sales(expected_rows) -> None:
     validate_silver_no_duplicates()
     validate_silver_continuous_dates()
     validate_silver_invalid_sales()
+    validate_silver_sales_total_records(expected_rows)
     validate_silver_no_sales()
     validate_silver_invalid_price()
     validate_silver_null_price_before_launch()
