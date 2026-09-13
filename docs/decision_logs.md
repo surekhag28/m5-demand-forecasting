@@ -216,7 +216,7 @@ For the chunked sales ingestion process:
 * Numeric columns are downcast within each chunk.
 * String/object identifier columns remain as strings.
 * Categorical conversion can be considered later after the complete dataset is consolidated.
-* Alternatively, categorical conversion can be applied during chunk processing if a **global category vocabulary** is explicitly defined and applied consistently to every chunk.
+
 
 This approach prioritises correctness and simplicity during the initial ingestion stage while still providing memory savings through numeric downcasting.
 
@@ -230,7 +230,7 @@ The data type optimisation strategy is dataset-specific:
 | -------- | ------------------- | ------------------- | -------------------------------------------------------- |
 | Calendar | Yes                 | Yes                 | Small dataset; complete category vocabulary is available |
 | Prices   | Yes                 | Yes                 | Large dataset; substantial memory reduction              |
-| Sales    | Yes, per chunk      | No, for now         | Chunk-level category mappings may differ                 |
+| Sales    | Yes, per chunk      | No                  | Not requied for numeric data                             |
 
 The primary objective is to **reduce memory and storage requirements without changing the semantic meaning of the source data**.
 

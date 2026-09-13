@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from src.config.config import (
@@ -58,6 +59,10 @@ def load_calendar() -> pd.DataFrame:
     )
 
     calendar["date"] = pd.to_datetime(calendar["date"])
+    calendar["event_type_1"] = calendar["event_type_1"].fillna("No Event")
+    calendar["event_type_2"] = calendar["event_type_2"].fillna("No Event")
+    calendar["event_name_1"] = calendar["event_name_1"].fillna("No Event")
+    calendar["event_name_2"] = calendar["event_name_2"].fillna("No Event")
 
     optimsed_calendar = get_optimised_data(calendar)
 
@@ -113,12 +118,15 @@ def process_sales_chunk(
     sales_long = pd.merge(
         sales_long, calendar, on="d", how="left", validate="many_to_one"
     )
-    sales_long["snap"] = sales_long["snap_CA"].where(
-        sales_long["state_id"] == "CA",
-        sales_long["snap_TX"].where(
+
+    sales_long["snap"] = np.select(
+        [
+            sales_long["state_id"] == "CA",
             sales_long["state_id"] == "TX",
-            sales_long["snap_WI"].where(sales_long["state_id"] == "WI"),
-        ),
+            sales_long["state_id"] == "WI",
+        ],
+        [sales_long["snap_CA"], sales_long["snap_TX"], sales_long["snap_WI"]],
+        default=np.nan,
     )
 
     sales_long = pd.merge(
@@ -222,6 +230,36 @@ def run_ingestion():
     print(f"processed files saved at {PROCESSED_DIR}")
 
     return summary
+
+
+def check_query() -> None:
+    import duckdb
+
+    con = duckdb.connect()
+
+    # How does sales behaves over the years? Does the sale increased or decreased? is there any trend?
+
+    query = f"""
+            with launch as
+            (select store_id,item_id,min(wm_yr_wk) as launch_week,min(date) as launch_date
+            from read_parquet('{SALES_PATH}')
+            where sell_price is not null
+            group by store_id,item_id)
+
+            select s.year,
+                round(count(*) filter(where s.sales=0 and s.date>=l.launch_date)/count(*) filter(s.date>=l.launch_date)*100.0,2) as zero_sales_pct,
+                round(count(*) filter(where s.sales>0 and s.date>=l.launch_date)/count(*) filter(s.date>=l.launch_date)*100,2) as postive_sales_pct
+            from read_parquet('{SALES_PATH}') as s
+            join launch as l
+            on s.item_id=l.item_id
+                and s.store_id=l.store_id
+            group by s.year
+            order by s.year
+            
+        """
+
+    result = con.execute(query).df()
+    print(result)
 
 
 if __name__ == "__main__":
