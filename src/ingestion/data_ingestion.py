@@ -232,35 +232,5 @@ def run_ingestion():
     return summary
 
 
-def check_query() -> None:
-    import duckdb
-
-    con = duckdb.connect()
-
-    # How does sales behaves over the years? Does the sale increased or decreased? is there any trend?
-
-    query = f"""
-            with launch as
-            (select store_id,item_id,min(wm_yr_wk) as launch_week,min(date) as launch_date
-            from read_parquet('{SALES_PATH}')
-            where sell_price is not null
-            group by store_id,item_id)
-
-            select s.year,
-                round(count(*) filter(where s.sales=0 and s.date>=l.launch_date)/count(*) filter(s.date>=l.launch_date)*100.0,2) as zero_sales_pct,
-                round(count(*) filter(where s.sales>0 and s.date>=l.launch_date)/count(*) filter(s.date>=l.launch_date)*100,2) as postive_sales_pct
-            from read_parquet('{SALES_PATH}') as s
-            join launch as l
-            on s.item_id=l.item_id
-                and s.store_id=l.store_id
-            group by s.year
-            order by s.year
-            
-        """
-
-    result = con.execute(query).df()
-    print(result)
-
-
 if __name__ == "__main__":
     run_ingestion()
