@@ -126,7 +126,6 @@ def process_sales_chunk(
             sales_long["state_id"] == "WI",
         ],
         [sales_long["snap_CA"], sales_long["snap_TX"], sales_long["snap_WI"]],
-        default=np.nan,
     )
 
     sales_long = pd.merge(

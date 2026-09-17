@@ -128,6 +128,7 @@ The model therefore needs information about product availability and how long th
 
 * `days_since_launch`
 * `is_available`
+* `launch_date`
 
 ---
 
@@ -142,6 +143,15 @@ Can calendar information explain recurring demand patterns that historical sales
 The analysis showed weekly and monthly seasonality, especially in series with more frequent sales.
 
 Demand varies across different days of the week, and some mont
+
+### Candidate Features
+
+* `weekday`
+* `week_of_year`
+* `month`
+* `year`
+* `is_weekend`
+
 
 
 Final Candidate Feature Table:

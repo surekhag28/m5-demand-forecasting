@@ -4,11 +4,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+GOLD_DIR = PROJECT_ROOT / "data" / "gold"
 
 SALES_PATH = RAW_DIR / "sales_train_validation.csv"
 CALENDAR_PATH = RAW_DIR / "calendar.csv"
 PRICES_PATH = RAW_DIR / "sell_prices.csv"
 
+
+SILVER_SALES_PATH = PROCESSED_DIR / "*.parquet"
+GOLD_SALES_PATH = GOLD_DIR / "features.parquet"
 
 CHUNK_SIZE = 1000
 CALENDAR_ROWS = 1969
@@ -47,3 +51,8 @@ PRICE_COLUMNS = [
     "wm_yr_wk",
     "sell_price",
 ]
+
+TRAIN_START = 0
+TRAIN_END = 100
+VALID_START = 101
+VALID_END = 129
