@@ -12,7 +12,7 @@ PRICES_PATH = RAW_DIR / "sell_prices.csv"
 
 
 SILVER_SALES_PATH = PROCESSED_DIR / "*.parquet"
-GOLD_SALES_PATH = GOLD_DIR / "features.parquet"
+
 
 CHUNK_SIZE = 1000
 CALENDAR_ROWS = 1969
@@ -52,7 +52,10 @@ PRICE_COLUMNS = [
     "sell_price",
 ]
 
-TRAIN_START = 0
-TRAIN_END = 100
-VALID_START = 101
-VALID_END = 129
+# ------- TRAINING CONFIG
+
+N_FOLDS = 5
+FORECAST_HORIZON = 28
+
+
+# 2016-04-24

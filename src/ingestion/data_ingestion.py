@@ -37,7 +37,7 @@ def get_optimised_data(data: pd.DataFrame) -> pd.DataFrame:
                 pd.to_numeric, downcast=dtype_mapping[dtype]
             )
         else:
-            obj_columns = data.select_dtypes(include="str").columns.to_list()
+            obj_columns = data.select_dtypes(include=["str"]).columns.to_list()
             for col in obj_columns:
                 optimised_data[col] = data[col].astype("category")
 
@@ -196,6 +196,8 @@ def run_ingestion():
             processed_chunk = process_sales_chunk(
                 sales_chunk=sales_chunk, calendar=calendar, prices=prices
             )
+
+            processed_chunk = get_optimised_data(processed_chunk)
 
             OUTPUT_PATH = PROCESSED_DIR / f"part_{chunk_number:04d}.parquet"
 

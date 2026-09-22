@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import duckdb as db
 
-from src.config.config import GOLD_SALES_PATH, SILVER_SALES_PATH
+from src.config.config import GOLD_DIR, SILVER_SALES_PATH
 
 
 def _read_silver_data():
     con = db.connect()
+
+    con.execute("SET memory_limit='10GB'")
+    con.execute("SET threads=4")
+    con.execute("SET preserve_insertion_order=false")
 
     sales = con.from_query(f"""
             SELECT item_id,store_id,state_id,cat_id,dept_id,date,year,month,weekday,sell_price,event_name_1,event_type_1,snap,sales,
@@ -510,8 +514,15 @@ def build_features():
     sales = create_sales_magnitude_features(con, sales)
 
     # sales.show(max_rows=1000)
-    sales.write_parquet(str(GOLD_SALES_PATH), overwrite=True)
-    print(f"Candidate features created: {GOLD_SALES_PATH}")
+    # sales.write_parquet(str(GOLD_SALES_PATH), overwrite=True)
+
+    sales.write_parquet(
+        str(GOLD_DIR),
+        overwrite=True,
+        partition_by=["year", "month"],
+        compression="zstd",
+    )
+    print(f"Candidate features created: {GOLD_DIR}")
 
 
 build_features()
