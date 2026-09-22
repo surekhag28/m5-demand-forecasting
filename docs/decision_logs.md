@@ -73,6 +73,7 @@
 - Candidate features were generated using DuckDB without requiring the complete 58M+ row dataset to be materialised in Pandas memory.
 - The resulting feature dataset was written back to the **Gold layer in Parquet format** for downstream modelling and evaluation.
 
+---
 
 ### Observation 3 — Memory limitation during baseline modelling
 
