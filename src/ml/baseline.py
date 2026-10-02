@@ -1,28 +1,9 @@
 from __future__ import annotations
 
-import pandas as pd
-
-from src.config.config import CUTOFF, FORECAST_HORIZON, KEY, PROCESSED_DIR
+from src.config.config import CUTOFF, KEY
 from src.ml.evaluate import evaluate
+from src.utils.train_utils import load_data
 from src.utils.utils import set_run_id
-
-
-def load_data():
-    df = pd.read_parquet(
-        PROCESSED_DIR  # filters=[("year", ">=", 2014), ("year", "<=", 2016)]
-    )
-
-    train_df = df[df["d"] <= CUTOFF][
-        KEY + ["d", "sales", "date", "cat_id", "dept_id", "state_id", "sell_price"]
-    ]
-
-    valid_df = df[(df["d"] > CUTOFF) & (df["d"] <= CUTOFF + FORECAST_HORIZON)][
-        KEY + ["sales", "date", "cat_id", "dept_id", "state_id", "d"]
-    ]
-
-    del df
-
-    return train_df, valid_df
 
 
 def make_naive_baseline():
