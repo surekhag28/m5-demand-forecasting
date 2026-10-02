@@ -6,9 +6,11 @@ RAW_DIR = PROJECT_ROOT / "data" / "raw"
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 GOLD_DIR = PROJECT_ROOT / "data" / "gold"
 
-SALES_PATH = RAW_DIR / "sales_train_validation.csv"
+SALES_PATH = RAW_DIR / "sales_train_evaluation.csv"
 CALENDAR_PATH = RAW_DIR / "calendar.csv"
 PRICES_PATH = RAW_DIR / "sell_prices.csv"
+
+RESULTS_PATH = PROJECT_ROOT / "data" / "results"
 
 
 SILVER_SALES_PATH = PROCESSED_DIR / "*.parquet"
@@ -18,7 +20,7 @@ CHUNK_SIZE = 1000
 CALENDAR_ROWS = 1969
 PRICES_ROWS = 6841121
 SALES_ROWS = 30490
-SALES_MELTED_ROWS = 30490 * 1913
+SALES_MELTED_ROWS = 30490 * 1941
 
 ID_COLUMNS = [
     "id",
@@ -54,8 +56,10 @@ PRICE_COLUMNS = [
 
 # ------- TRAINING CONFIG
 
-N_FOLDS = 5
+N_FOLDS = 3
 FORECAST_HORIZON = 28
 
+KEY = ["item_id", "store_id"]
+TARGET = "sales"
 
-# 2016-04-24
+CUTOFF = 1913  # last training data point
