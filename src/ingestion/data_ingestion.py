@@ -128,6 +128,8 @@ def process_sales_chunk(
         [sales_long["snap_CA"], sales_long["snap_TX"], sales_long["snap_WI"]],
     )
 
+    sales_long["d"] = sales_long["d"].str.replace("d_", "", regex=False).astype("int32")
+
     sales_long = pd.merge(
         sales_long,
         prices,
@@ -136,7 +138,7 @@ def process_sales_chunk(
         validate="many_to_one",
     )
 
-    sales_long.drop(columns=["id", "d", "snap_CA", "snap_TX", "snap_WI"], inplace=True)
+    sales_long.drop(columns=["id", "snap_CA", "snap_TX", "snap_WI"], inplace=True)
     sales_long["sales"] = pd.to_numeric(sales_long["sales"], downcast="unsigned")
 
     final_colums = [
@@ -147,6 +149,7 @@ def process_sales_chunk(
         "state_id",
         "date",
         "wm_yr_wk",
+        "d",
         "sales",
         "sell_price",
         "weekday",
