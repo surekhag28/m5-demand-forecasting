@@ -8,6 +8,7 @@ from src.config.config import (
     CALENDAR_PATH,
     CALENDAR_ROWS,
     CHUNK_SIZE,
+    FINAL_COLUMNS,
     ID_COLUMNS,
     PRICE_COLUMNS,
     PRICES_PATH,
@@ -141,28 +142,7 @@ def process_sales_chunk(
     sales_long.drop(columns=["id", "snap_CA", "snap_TX", "snap_WI"], inplace=True)
     sales_long["sales"] = pd.to_numeric(sales_long["sales"], downcast="unsigned")
 
-    final_colums = [
-        "item_id",
-        "dept_id",
-        "cat_id",
-        "store_id",
-        "state_id",
-        "date",
-        "wm_yr_wk",
-        "d",
-        "sales",
-        "sell_price",
-        "weekday",
-        "month",
-        "year",
-        "event_name_1",
-        "event_type_1",
-        "event_name_2",
-        "event_type_2",
-        "snap",
-    ]
-
-    sales_long = sales_long[final_colums]
+    sales_long = sales_long[FINAL_COLUMNS]
 
     return sales_long
 

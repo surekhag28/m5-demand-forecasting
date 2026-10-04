@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from src.config.config import CUTOFF, FEATURES, MODEL_DIR
+
 HIERARCHY_LEVELS = {
     "total": [],
     "state": ["state_id"],
@@ -166,3 +168,56 @@ def evaluate(train_df: pd.DataFrame, val_df: pd.DataFrame):
     wrmsse = level_scores["wrmsse_level"].mean()
 
     return level_scores, wrmsse
+
+
+def get_params():
+    params = {
+        "objective": "tweedie",
+        "learning_rate": 0.05,
+        "n_estimators": 300,
+        "num_leaves": 32,
+        "max_bin": 127,
+        "min_child_samples": 100,
+        "subsample": 0.8,
+        "subsample_freq": 1,
+        "colsample_bytree": 0.8,
+        "force_col_wise": True,
+        "n_jobs": 4,
+        "random_state": 42,
+        "verbose": -1,
+    }
+
+    return params
+
+
+def save_artifacts(model, encs, model_name):
+    import joblib
+
+    model.save_model(MODEL_DIR / f"{model_name}.txt")
+    joblib.dump(encs, MODEL_DIR / f"{model_name}_encs.joblib")
+
+
+def load_artifacts(model_name):
+    import joblib
+    import lightgbm as lgb
+
+    model = lgb.Booster(model_file=str(MODEL_DIR / f"{model_name}.txt"))
+    encs = joblib.load(MODEL_DIR / f"{model_name}_encs.joblib")
+
+    return model, encs
+
+
+def evaluate_test(model_name, filter=None):
+    from src.ingestion.build_features_direct import apply_encodings
+    from src.utils.train_utils import load_data
+
+    model, encs = load_artifacts(model_name)
+    test_df = load_data(extra_filters=filter, include_test=True, cutoff=CUTOFF)
+    train_df = load_data(include_test=False, cutoff=CUTOFF)
+
+    test_df = apply_encodings(test_df, encs)
+    test_df["prediction"] = model.predict(test_df[FEATURES])
+
+    _, wrmsse = evaluate(train_df, test_df)
+    print(f"Final wrmsse of model {model_name} is: {wrmsse}")
+    return wrmsse

@@ -11,6 +11,11 @@ def make_naive_baseline():
     run_id = set_run_id("naive")
     train_df, valid_df = load_data()
 
+    train_df = train_df[
+        KEY + ["d", "sales", "date", "cat_id", "dept_id", "state_id", "sell_price"]
+    ]
+    valid_df = valid_df[KEY + ["sales", "date", "cat_id", "dept_id", "state_id", "d"]]
+
     last_sales = train_df.loc[train_df["d"] == CUTOFF, KEY + ["sales"]].rename(
         columns={"sales": "prediction"}
     )
@@ -27,6 +32,11 @@ def make_naive_baseline():
 def make_seasonal_baseline():
     run_id = set_run_id("seasonal_naive")
     train_df, valid_df = load_data()
+
+    train_df = train_df[
+        KEY + ["d", "sales", "date", "cat_id", "dept_id", "state_id", "sell_price"]
+    ]
+    valid_df = valid_df[KEY + ["sales", "date", "cat_id", "dept_id", "state_id", "d"]]
 
     train_df["wday"] = train_df["date"].dt.dayofweek
     valid_df["wday"] = valid_df["date"].dt.dayofweek

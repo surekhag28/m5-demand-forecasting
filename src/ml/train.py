@@ -1,113 +1,109 @@
 from __future__ import annotations
 
 import time
-from datetime import timedelta
 
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
-import pyarrow.parquet as pq
-from sklearn.metrics import mean_absolute_error
 
-from src.config.config import FORECAST_HORIZON, GOLD_DIR, N_FOLDS
+from src.config.config import (
+    CUTOFF,
+    FEATURES,
+    MODEL_DIR,
+    TARGET,
+)
+from src.ingestion.build_features_direct import (
+    apply_encodings,
+    create_encoding_features,
+)
+from src.ml.evaluate import evaluate, evaluate_test, get_params, save_artifacts
+from src.utils.train_utils import load_data, make_folds, split
 
-KEY = ["item_id", "store_id"]
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def load_dataset() -> pd.DataFrame:
+def train(name):
 
-    table = pq.read_table(
-        source=GOLD_DIR,
-        columns=["item_id", "store_id", "date", "sales"],
-        read_dictionary=["item_id", "store_id"],
+    train_df = load_data(include_test=False, cutoff=CUTOFF)
+
+    encs = create_encoding_features(train_df, train_df["date"].dt.date.max())
+    train_df = apply_encodings(train_df, encs)
+
+    train_data = lgb.Dataset(
+        train_df[FEATURES],
+        label=train_df[TARGET],
+        params=get_params(),
+        free_raw_data=True,
     )
-    df = table.to_pandas(date_as_object=False)
-    return df.sort_values(by="date", kind="stable", ignore_index=True)
+    model = lgb.train(get_params(), train_data)
 
-
-def create_cv_folds(df: pd.DataFrame) -> dict:
-
-    folds = []
-
-    start_date = df["date"].min().date()
-    end_date = df["date"].max().date()
-
-    for i in range(N_FOLDS, 0, -1):
-        train_end = end_date - timedelta(days=i * FORECAST_HORIZON)
-        valid_start = train_end + timedelta(days=1)
-        valid_end = valid_start + timedelta(days=FORECAST_HORIZON - 1)
-
-        folds.append(
-            {
-                "folds": N_FOLDS - i + 1,
-                "train_start": start_date,
-                "train_end": train_end,
-                "valid_start": valid_start,
-                "valid_end": valid_end,
-            }
-        )
-
-    return folds
-
-
-def create_naive_baseline(last_week: pd.DataFrame, valid_df: pd.DataFrame):
-
-    last_sales = last_week.groupby(by=KEY).tail(1)
-
-    last_sales = last_sales[KEY + ["sales"]].rename(
-        columns={"sales": "predicted_sales"}
-    )
-
-    merged = valid_df.merge(last_sales, on=KEY, how="left")
-    return mean_absolute_error(merged["actual_sales"], merged["predicted_sales"])
-
-
-def create_seasonal_baseline(last_week: pd.DataFrame, valid_df: pd.DataFrame):
-
-    last_sales = last_week.copy()
-    last_sales["position"] = last_sales.groupby(by=KEY, observed=True).cumcount()
-    seasonal = last_sales[KEY + ["position", "sales"]].rename(
-        columns={"sales": "predicted_sales"}
-    )
-
-    valid = valid_df.copy()
-    valid["position"] = valid_df.groupby(by=KEY, observed=True).cumcount() % 7
-    merged = valid.merge(seasonal, on=KEY + ["position"], how="left")
-    return mean_absolute_error(merged["actual_sales"], merged["predicted_sales"])
+    save_artifacts(model, encs, name)
 
 
 def run():
 
     start = time.time()
-    df = load_dataset()
-    folds = create_cv_folds(df)
+    df = load_data(include_test=False, cutoff=CUTOFF)
 
-    mae_metric = {"naive_baseline": [], "seasonal_baseline": []}
+    print(f"Features loaded: {len(df)}, time taken:{time.time() - start}")
+
+    start = time.time()
+
+    start_date = df["date"].min().date()
+    end_date = df["date"].max().date()
+
+    folds = make_folds(start_date, end_date)
+
+    metric = {
+        "lightgbm": [],
+    }
 
     for i, fold in enumerate(folds):
         print("train --> ", fold["train_start"], fold["train_end"])
         print("valid --> ", fold["valid_start"], fold["valid_end"])
 
-        train_df = df[df["date"] <= pd.Timestamp(fold["train_end"])]
-        valid_df = df[
-            (df["date"] >= pd.Timestamp(fold["valid_start"]))
-            & (df["date"] <= pd.Timestamp(fold["valid_end"]))
-        ].rename(columns={"sales": "actual_sales"})
+        train_df, valid_df = split(df, fold)
 
-        last_week = train_df.groupby(by=KEY, observed=True).tail(7)
+        encs = create_encoding_features(train_df, fold["train_end"])
+        train_df = apply_encodings(train_df, encs)
+        valid_df = apply_encodings(valid_df, encs)
 
-        mae = create_naive_baseline(last_week, valid_df)
-        mae_metric["naive_baseline"].append(mae)
+        X_train = train_df[FEATURES]
+        y_train = train_df[TARGET]
 
-        mae = create_seasonal_baseline(last_week, valid_df)
-        mae_metric["seasonal_baseline"].append(mae)
+        X_valid = valid_df[FEATURES]
+        y_valid = valid_df[TARGET]
+
+        train_data = lgb.Dataset(X_train, label=y_train, free_raw_data=True)
+
+        model = lgb.train(get_params(), train_data, callbacks=[lgb.log_evaluation(50)])
+
+        y_pred = pd.Series(model.predict(X_valid), index=y_valid.index)
+        valid_df["prediction"] = y_pred
+
+        # for wrmsse
+        _, wrmsse = evaluate(train_df, valid_df)
+        metric["lightgbm"].append(wrmsse)
+
+    fold_cols = [f"fold_{i + 1}_wrmsse" for i in range(len(folds))]
+
+    metric_df = pd.DataFrame.from_dict(
+        metric,
+        orient="index",
+        columns=fold_cols,
+    ).reset_index()
+
+    metric_df["mean_wrmsse"] = metric_df[fold_cols].mean(axis=1)
+    print(metric_df)
 
     print(
-        f"Mean abosulte error for naive baseline: {np.mean(mae_metric['naive_baseline'])}"
-    )
-    print(
-        f"Mean abosulte error for seasonal baseline: {np.mean(mae_metric['seasonal_baseline'])}"
+        f"Weighted root mean squared scaled error for lightgbm: {np.mean(metric['lightgbm'])}"
     )
     print(f"Total time take: {(time.time() - start) / 60} mins")
 
 
-run()
+if __name__ == "__main__":
+    model_name = "lgb_global_final"
+    run()  # for cross validation
+    train(model_name)
+    evaluate_test(model_name)

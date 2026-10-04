@@ -3,40 +3,37 @@ from datetime import timedelta
 import pandas as pd
 
 from src.config.config import (
-    CUTOFF,
+    CAT_COLS,
     FORECAST_HORIZON,
-    KEY,
+    GOLD_DIR,
     N_FOLDS,
-    PROCESSED_DIR,
-    TRAIN_COLS,
-    VAL_COLS,
 )
+from src.utils.utils import get_optimised_data
 
 
-def load_data():
+def load_data(extra_filters=None, include_test=False, cutoff=None):
+
+    if not include_test:
+        filters = [("d", "<=", cutoff)]
+    else:
+        filters = [("d", ">", cutoff), ("d", "<=", cutoff + FORECAST_HORIZON)]
+
+    if extra_filters:
+        filters.extend(extra_filters)
+
     df = pd.read_parquet(
-        PROCESSED_DIR  # filters=[("year", ">=", 2014), ("year", "<=", 2016)]
+        str(GOLD_DIR) + "/features.parquet",
+        filters=filters,
+        read_dictionary=CAT_COLS,
     )
+    df = get_optimised_data(df)
 
-    train_df = df[df["d"] <= CUTOFF][
-        KEY + ["d", "sales", "date", "cat_id", "dept_id", "state_id", "sell_price"]
-    ]
-
-    valid_df = df[(df["d"] > CUTOFF) & (df["d"] <= CUTOFF + FORECAST_HORIZON)][
-        KEY + ["sales", "date", "cat_id", "dept_id", "state_id", "d"]
-    ]
-
-    del df
-
-    return train_df, valid_df
+    return df
 
 
-def make_folds(df: pd.DataFrame) -> dict:
+def make_folds(start_date, end_date) -> dict:
 
     folds = []
-
-    start_date = df["date"].min().date()
-    end_date = df["date"].max().date()
 
     for i in range(N_FOLDS, 0, -1):
         train_end = end_date - timedelta(days=i * FORECAST_HORIZON)
@@ -57,10 +54,10 @@ def make_folds(df: pd.DataFrame) -> dict:
 
 
 def split(df: pd.DataFrame, fold: dict):
-    train_df = df[df["date"] <= pd.Timestamp(fold["train_end"])][TRAIN_COLS]
+    train_df = df[df["date"] <= pd.Timestamp(fold["train_end"])]
     valid_df = df[
         (df["date"] >= pd.Timestamp(fold["valid_start"]))
         & (df["date"] <= pd.Timestamp(fold["valid_end"]))
-    ][VAL_COLS]
+    ]
 
     return train_df, valid_df
