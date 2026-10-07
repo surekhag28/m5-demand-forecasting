@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 import pandas as pd
+import psutil
 
 from src.config.config import (
     CAT_COLS,
@@ -61,3 +62,24 @@ def split(df: pd.DataFrame, fold: dict):
     ]
 
     return train_df, valid_df
+
+
+def get_params():
+    params = {
+        "objective": "tweedie",
+        "tweedie_variance_power": 1.1,
+        "learning_rate": 0.1,
+        "num_iterations": 300,
+        "num_leaves": 64,
+        "min_child_samples": 2000,
+        "max_bin": 63,
+        "subsample": 0.5,
+        "subsample_freq": 1,
+        "colsample_bytree": 0.7,
+        "force_col_wise": True,
+        "n_jobs": psutil.cpu_count(logical=False),  # physical cores only
+        "random_state": 42,
+        "verbose": -1,
+    }
+
+    return params

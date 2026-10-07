@@ -215,6 +215,10 @@ This allows me to keep memory-efficient data types during ingestion and feature 
 
 ## Issue 7: LightGBM Baseline With All Candidate Features
 
+For the time series forecasting model, I went with a non-recursive (direct) approach to predict the full 28-day window instead of a recursive one. The trade-off is that I lose the short, recent lags like lag_1, lag_2 and lag_7.
+
+A recursive approach would let me use those short lags and the most recent sales to forecast the next day. The problem is that each prediction then becomes an input for the next one, so if an early forecast is off, the error keeps compounding across the window. That felt riskier, since I'd essentially be feeding the model wrong information about past sales.
+
 For the initial LightGBM baseline, I used all candidate features during cross-validation.
 
 This improved the WRMSSE score compared with both the naive and seasonal naive baseline models.
@@ -239,4 +243,60 @@ A larger positive increase in WRMSSE after shuffling indicates that the model wa
 * This reduced the overall computation time while giving me an early understanding of which feature groups were contributing most to the model.
 * To make training faster, I only used the last 2 years of sales data. I also cut down the number of trees, used fewer bins when the model looks for split points, and increased the learning rate.
 * Permutation validation was also simpler and faster than approaches such as forward selection or backward elimination because it does not require retraining the model for every possible feature combination.
-* 
+* Its a quicker way to understand which features are contributing to model's learning by just shuffling the features and computing delta.
+* During the initial run with all the candidate features below is the delta for each feature group across the folds.
+  
+| Feature Group         | Fold 1  | Fold 2  | Fold 3  | Mean    | Folds Positive |
+|-----------------------|--------:|--------:|--------:|--------:|---------------:|
+| enc_item              | 1.2409  | 1.2796  | 1.3319  | 1.2841  | 3 |
+| positive_sales_stats  | 0.3970  | 0.4103  | 0.4040  | 0.4037  | 3 |
+| weekly_pattern        | 0.2805  | 0.2651  | 0.3259  | 0.2905  | 3 |
+| lags                  | 0.1991  | 0.1856  | 0.1989  | 0.1946  | 3 |
+| ids                   | 0.1451  | 0.1816  | 0.2045  | 0.1771  | 3 |
+| rolling_mean          | 0.1307  | 0.1384  | 0.1621  | 0.1437  | 3 |
+| enc_store             | 0.0278  | 0.0268  | 0.0259  | 0.0268  | 3 |
+| price_level           | 0.0052  | 0.0244  | 0.0356  | 0.0218  | 3 |
+| snap                  | 0.0024  | 0.0143  | 0.0355  | 0.0174  | 3 |
+| seasonality           | 0.0092  | 0.0016  | 0.0189  | 0.0099  | 3 |
+| events                | 0.0122  | 0.0103  | 0.0000  | 0.0075  | 2 |
+| price_change          | -0.0001 | 0.0016  | 0.0035  | 0.0017  | 2 |
+| store_dept_rolling    | 0.0020  | 0.0005  | 0.0002  | 0.0009  | 3 |
+| noise                 | 0.0000  | 0.0000  | 0.0000  | 0.0000  | 3 |
+| year                  | 0.0000  | 0.0000  | 0.0000  | 0.0000  | 0 |
+| intermittency         | -0.0100 | -0.0236 | -0.0142 | -0.0159 | 0 |
+
+* Across the fold run I observed that noise feature is never being used by trained model for any of the split hence it is not the right metric to be considered as threshold.
+* So, I decided to use the delta size of each feature group across the folds and mean delta to decide the candidate feature group to drop.
+* From the above table, I decided to `year`, `noise`, and `store_dep_rolling` features as their contribution to the model's learning is negligible. It makes sense because I have used only 1.5 years of data (from 2015 to 2016) which is just 2 values in the feature and not helping much for the tree to split on and decide on high and low seller item, it mostly constant.
+* `events` feature group has 0 delta in fold 3 but still I have kept it because it might be that for the fold 3 there were no events for that 28 days period/month so majorly the value was constant like just `No Event`, so not a differentiating factor for model to split on. But for fold 1 and fold 2 I can see there is positive delta.
+* After removing `store_dep_rolling` feature I ran the cross validation check again and observed that the wrmsse score increased to `0.69` rather than keeping it stable. After investigating I observed that the feature definition was incorrect, the sql was missing `ORDER BY date` clause while computing rolling averages within the window, this leads to data leakage. 
+* After adding the clause, I retrain the model by keeping `store_dep_rolling` feature and observed the honest wrmsse score as `0.69`
+  and permutation delta around `0.0026` which is more than previous run. It is also consistent across the folds `store_dept_rolling    0.0032  0.0018  0.0028  0.0026`. The contribution is modest and it carries some overlapping information to rolling features. But still I kept it as it not expensive to build and for model to split on.
+
+* New permutation score after fixing above issue:
+
+| Feature Group         | Fold 1 | Fold 2 | Fold 3 | Mean   | Folds Positive |
+|-----------------------|-------:|-------:|-------:|-------:|---------------:|
+| enc_item              | 1.2088 | 1.2210 | 1.3000 | 1.2433 | 3 |
+| positive_sales_stats  | 0.4999 | 0.5180 | 0.5666 | 0.5282 | 3 |
+| weekly_pattern        | 0.2660 | 0.2495 | 0.3050 | 0.2735 | 3 |
+| rolling_mean          | 0.1752 | 0.1782 | 0.2051 | 0.1862 | 3 |
+| lags                  | 0.1995 | 0.1493 | 0.1914 | 0.1801 | 3 |
+| ids                   | 0.1551 | 0.1721 | 0.2037 | 0.1770 | 3 |
+| enc_store             | 0.0279 | 0.0245 | 0.0286 | 0.0270 | 3 |
+| price_level           | 0.0081 | 0.0243 | 0.0412 | 0.0245 | 3 |
+| snap                  | 0.0102 | 0.0116 | 0.0248 | 0.0155 | 3 |
+| events                | 0.0225 | 0.0110 | 0.0000 | 0.0112 | 2 |
+| seasonality           | 0.0080 | -0.0011 | 0.0240 | 0.0103 | 2 |
+| intermittency         | 0.0231 | -0.0075 | 0.0084 | 0.0080 | 2 |
+| price_change          | 0.0015 | 0.0036 | 0.0068 | 0.0040 | 3 |
+| store_dept_rolling    | 0.0032 | 0.0018 | 0.0028 | 0.0026 | 3 |
+
+* Looking at the table above, `price_change` and `intermittency` show a negative delta in fold 2, meaning the model actually did *better* when these features were shuffled. But in the other two folds (and on average) the delta is positive, so I decided to keep both of them.
+* When I removed the encoding features during training, the WRMSSE dropped to around `0.61`. That was surprising, since in earlier runs these features had a higher delta and seemed to matter more than the others.
+* After some debugging, I found a bug. When computing the mean sales across groups (like `store, cat` or `store, dept`), I was using all items up to the cutoff. So every data point was seeing sales from *after* its own date too, which is basically leakage.
+* I fixed the feature definitions so that for each data point, the mean is computed only from past sales, shifted by the 28-day horizon.
+* After fixing that and dropping the ID features, I retrained the model and got a WRMSSE of `0.620671`.
+* I also tried removing the encoding features again to see their impact, and the score stayed about the same at `0.6206`. My guess is the model is already getting similar info from the rolling features. I kept them in anyway.
+
+  

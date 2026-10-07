@@ -102,11 +102,11 @@ CAT_COLS = [
 ]
 
 GROUP_ENC = {
-    "item": ["item_id"],
-    "store": ["store_id"],
-    "item_store": ["item_id", "store_id"],
-    "store_dept": ["store_id", "dept_id"],
-    "store_cat": ["store_id", "cat_id"],
+    "item": "item_id",
+    "store": "store_id",
+    "item_store": "item_id, store_id",
+    "store_dept": "store_id, dept_id",
+    "store_cat": "store_id, cat_id",
 }
 
 FEATURES = [
@@ -116,8 +116,8 @@ FEATURES = [
     "cat_id",
     "dept_id",
     "month",
-    "year",
-    "weekday",
+    # "year",
+    # "weekday",
     "week_of_year",
     "day_of_week",
     "day_of_month",
@@ -170,4 +170,79 @@ FEATURES = [
 
 
 STATES = ["CA", "TX", "WI"]
-STORES = ["CA_1", "CA_2", "TX_1", "WI_3"]
+STORES = [
+    "CA_1",
+    "CA_2",
+    "CA_3",
+    "CA_4",
+    "TX_1",
+    "TX_2",
+    "TX_3",
+    "WI_1",
+    "WI_2",
+    "WI_3",
+]
+
+
+FEATURE_GROUPS = {
+    "ids": ["item_id", "store_id", "state_id", "cat_id", "dept_id"],
+    # calendar
+    "weekly_pattern": ["day_of_week", "is_weekend"],
+    "seasonality": ["month", "week_of_year", "day_of_month"],
+    # "year": ["year"],
+    "events": ["event_name_1", "event_type_1"],
+    "snap": ["snap"],
+    "price_level": [
+        "sell_price",
+        "price_max",
+        "price_min",
+        "price_mean",
+        "price_norm",
+        "price_unique_count",
+    ],
+    "price_change": [
+        "price_weekly_change",
+        "price_change_m",
+        "price_change_y",
+    ],
+    "lags": [
+        "lag_28",
+        "lag_29",
+        "lag_30",
+        "lag_31",
+        "lag_32",
+        "lag_33",
+        "lag_34",
+        "lag_35",
+        "lag_56",
+    ],
+    "rolling_mean": ["rolling_mean_7", "rolling_mean_28", "rolling_mean_56"],
+    "intermittency": [
+        "rolling_positive_rate_7",
+        "rolling_positive_rate_28",
+        "rolling_zero_rate_28",
+        "days_since_last_sale",
+    ],
+    "positive_sales_stats": [
+        "rolling_positive_mean_7",
+        "rolling_positive_mean_28",
+        "rolling_positive_median_28",
+        "rolling_positive_std_28",
+        "rolling_positive_max_28",
+    ],
+    "store_dept_rolling": ["store_dept_rolling_avg"],
+    "enc_item": [
+        "enc_item_mean",
+        "enc_item_std",
+        "enc_item_store_mean",
+        "enc_item_store_std",
+    ],
+    "enc_store": [
+        "enc_store_mean",
+        "enc_store_std",
+        "enc_store_dept_mean",
+        "enc_store_dept_std",
+        "enc_store_cat_mean",
+        "enc_store_cat_std",
+    ],
+}
