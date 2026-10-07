@@ -134,6 +134,8 @@ def create_price_features(rel):
             f"round(sell_price/lag(sell_price,7) over({partition} order by date),2) as price_weekly_change",
             f"round(sell_price/avg(sell_price) over({partition}, month, year),2) as price_change_m",
             f"round(sell_price/avg(sell_price) over({partition}, year),2) as price_change_y",
+            f"round(sell_price/avg(sell_price) over({partition}),2) as price_vs_usual",
+            "round(sell_price/nullif(avg(sell_price) over(partition by store_id, dept_id, wm_yr_wk),0),2) as price_vs_dept",
         ]
     )
 

@@ -155,6 +155,8 @@ FEATURES = [
     "price_weekly_change",
     "price_change_m",
     "price_change_y",
+    "price_vs_usual",
+    "price_vs_dept",
     "store_dept_rolling_avg",
     "enc_item_mean",
     "enc_store_mean",
@@ -209,6 +211,8 @@ FEATURE_GROUPS = {
         "price_weekly_change",
         "price_change_m",
         "price_change_y",
+        "price_vs_usual",
+        "price_vs_dept",
     ],
     "lags": [
         "lag_28",

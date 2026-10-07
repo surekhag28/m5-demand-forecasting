@@ -293,10 +293,10 @@ A larger positive increase in WRMSSE after shuffling indicates that the model wa
 | store_dept_rolling    | 0.0032 | 0.0018 | 0.0028 | 0.0026 | 3 |
 
 * Looking at the table above, `price_change` and `intermittency` show a negative delta in fold 2, meaning the model actually did *better* when these features were shuffled. But in the other two folds (and on average) the delta is positive, so I decided to keep both of them.
-* When I removed the encoding features during training, the WRMSSE dropped to around `0.61`. That was surprising, since in earlier runs these features had a higher delta and seemed to matter more than the others.
+* When I removed the encoding features during training, the WRMSSE dropped to around `0.61` from `0.6904`. That was surprising, since in earlier runs these features had a higher delta and seemed to matter more than the others.
 * After some debugging, I found a bug. When computing the mean sales across groups (like `store, cat` or `store, dept`), I was using all items up to the cutoff. So every data point was seeing sales from *after* its own date too, which is basically leakage.
 * I fixed the feature definitions so that for each data point, the mean is computed only from past sales, shifted by the 28-day horizon.
 * After fixing that and dropping the ID features, I retrained the model and got a WRMSSE of `0.620671`.
 * I also tried removing the encoding features again to see their impact, and the score stayed about the same at `0.6206`. My guess is the model is already getting similar info from the rolling features. I kept them in anyway.
-
-  
+* I added a new `trend_position` feature group. It looks at how each item is trending, both inside its store and across all stores. After retraining, the WRMSSE score dropped to `0.585` (~4.5% down), so the model got better.
+* Next, I tried some price comparison features. They compare an item's current price to its usual average price, and also to other items in the same department. After retraining, the WRMSSE score went up a little to `0.6144` (~5% ^), which is worse. So I'm removing these features for the next run.
