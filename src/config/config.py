@@ -166,6 +166,11 @@ FEATURES = [
     "enc_item_store_std",
     "enc_store_dept_std",
     "enc_store_cat_std",
+    "trend_28_vs_long",
+    "trend_7_vs_28",
+    "trend_28_vs_56",
+    "item_vs_dept",
+    "item_vs_cat",
 ]
 
 
@@ -244,5 +249,12 @@ FEATURE_GROUPS = {
         "enc_store_dept_std",
         "enc_store_cat_mean",
         "enc_store_cat_std",
+    ],
+    "trends_position": [
+        "trend_28_vs_long",
+        "trend_7_vs_28",
+        "trend_28_vs_56",
+        "item_vs_dept",
+        "item_vs_cat",
     ],
 }

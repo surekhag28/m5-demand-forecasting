@@ -69,7 +69,7 @@ def get_params():
         "objective": "tweedie",
         "tweedie_variance_power": 1.1,
         "learning_rate": 0.1,
-        "num_iterations": 300,
+        "num_iterations": 500,
         "num_leaves": 64,
         "min_child_samples": 2000,
         "max_bin": 63,

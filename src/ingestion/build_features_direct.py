@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import duckdb as db
-import pandas as pd
 
 from src.config.config import (
     END_YEAR,
     FORECAST_HORIZON,
     GOLD_DIR,
-    GROUP_ENC,
     SILVER_SALES_PATH,
     START_YEAR,
 )
@@ -22,7 +20,7 @@ def _read_silver_data():
 
     sales = con.sql(f"""
         SELECT item_id, store_id, state_id, cat_id, dept_id,d,
-               date, min(date) over(partition by item_id,store_id order by date) as launch_date,year, month, weekday,
+               date,wm_yr_wk, min(date) over(partition by item_id,store_id order by date) as launch_date,year, month, weekday,
                sell_price, event_name_1, event_type_1, snap, sales
         FROM read_parquet('{SILVER_SALES_PATH}')
         WHERE sell_price IS NOT NULL
@@ -152,39 +150,42 @@ def create_store_dept_rolling(rel, horizon=FORECAST_HORIZON):
     rolled = daily.query(
         "d",
         f"""select store_id, dept_id, date, round(avg(dept_sales)
-        over(partition by store_id, dept_id rows between {horizon + 27} preceding and {horizon} preceding),2) as store_dept_rolling_avg 
+        over(partition by store_id, dept_id order by date rows between {horizon + 27} preceding and {horizon} preceding),2) as store_dept_rolling_avg 
         from d""",
     )
 
     return rel.join(rolled, "store_id,dept_id,date", how="left")
 
 
-def create_encoding_features(df, end_date):
+def create_encoding_features(rel, horizon):
 
-    import time
+    from src.config.config import GROUP_ENC
 
-    start = time.time()
-    df["date"] = pd.to_datetime(df["date"]).dt.date
-    train_df = df[df["date"] <= end_date]
-    encs = {}
-
+    cols = []
     for name, keys in GROUP_ENC.items():
-        encs[name] = (
-            train_df.groupby(by=keys)["sales"]
-            .agg(["mean", "std"])
-            .rename(columns={"mean": f"enc_{name}_mean", "std": f"enc_{name}_std"})
-            .reset_index()
-        )
-    print(f"Time taken for encoding feature: {time.time() - start}")
-    return encs
+        window = f"over (partition by {keys} order by date range between unbounded preceding and interval {horizon} days preceding)"
+        cols.append(f"avg(sales) {window} as enc_{name}_mean")
+        cols.append(f"stddev(sales) {window} as enc_{name}_std")
+
+    cols = ",\n".join(cols)
+    return rel.query("encoding_features", f"select *, {cols} from encoding_features")
 
 
-def apply_encodings(df: pd.DataFrame, encs: dict[str, pd.DataFrame]):
+def create_trend_features(rel):
+    return rel.query(
+        "trend_features",
+        """
 
-    for name, keys in GROUP_ENC.items():
-        df = df.merge(encs[name], on=keys, how="left")
+                    select *,rolling_mean_28/nullif(enc_item_store_mean,0) as trend_28_vs_long,
+                            rolling_mean_7/nullif(rolling_mean_28,0) as trend_7_vs_28,
+                            rolling_mean_28/nullif(rolling_mean_56,0) as trend_28_vs_56,
+                            rolling_mean_28/nullif(enc_store_dept_mean,0) as item_vs_dept,
+                            rolling_mean_28/nullif(enc_store_cat_mean,0) as item_vs_cat,
+                            enc_item_store_mean/nullif(enc_item_mean,0) as item_store_vs_global
+                        from trend_features
 
-    return df
+                    """,
+    )
 
 
 def build_features_direct():
@@ -192,11 +193,13 @@ def build_features_direct():
 
     sales = create_calendar_features(sales)
     sales = create_lag_features(sales)
-    sales = create_sales_intermittency_features(sales, horizon=28)
-    sales = create_recent_demand_features(sales, horizon=28)
-    sales = create_sales_magnitude_features(sales, horizon=28)
+    sales = create_sales_intermittency_features(sales, horizon=FORECAST_HORIZON)
+    sales = create_recent_demand_features(sales, horizon=FORECAST_HORIZON)
+    sales = create_sales_magnitude_features(sales, horizon=FORECAST_HORIZON)
     sales = create_price_features(sales)
     sales = create_store_dept_rolling(sales)
+    sales = create_encoding_features(sales, horizon=FORECAST_HORIZON)
+    sales = create_trend_features(sales)
 
     # sales.filter("store_id=='WI_2' AND item_id=='FOODS_1_030'").order("date").show()
 
