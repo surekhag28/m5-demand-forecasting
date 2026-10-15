@@ -64,22 +64,40 @@ def split(df: pd.DataFrame, fold: dict):
     return train_df, valid_df
 
 
+# lightgbm baseline params - global model
 def get_params():
-    params = {
+    return {
         "objective": "tweedie",
         "tweedie_variance_power": 1.1,
         "learning_rate": 0.1,
         "num_iterations": 500,
         "num_leaves": 64,
-        "min_child_samples": 2000,
+        "min_data_in_leaf": 2000,
         "max_bin": 63,
-        "subsample": 0.5,
-        "subsample_freq": 1,
-        "colsample_bytree": 0.7,
+        # No row or feature sampling for baseline
+        "bagging_fraction": 1.0,
+        "bagging_freq": 0,
+        "feature_fraction": 1.0,
         "force_col_wise": True,
-        "n_jobs": psutil.cpu_count(logical=False),  # physical cores only
-        "random_state": 42,
-        "verbose": -1,
+        "num_threads": psutil.cpu_count(logical=False),
+        # Reproducibility
+        "seed": 42,
+        "data_random_seed": 42,
+        "feature_fraction_seed": 42,
+        "bagging_seed": 42,
+        "verbosity": -1,
     }
 
-    return params
+
+def get_hpo_params():
+    return {
+        "objective": "tweedie",
+        "learning_rate": 0.1,  # fixed while tuning (fast); lower it for the final model
+        "max_bin": 63,
+        "bagging_freq": 1,
+        "force_col_wise": True,
+        "num_threads": psutil.cpu_count(logical=False),
+        "seed": 42,
+        "deterministic": True,
+        "verbosity": -1,
+    }

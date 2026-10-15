@@ -29,7 +29,7 @@ The `sell_prices` dataset contains the **weekly selling price** for each item-st
 
 Understanding how these datasets relate to each other was important before designing the transformation and feature engineering steps.
 
----
+
 
 ## Decision 1: Reduce Memory Usage During Ingestion
 
@@ -211,92 +211,162 @@ To avoid numerical overflow, I convert both `sales` and `sell_price` to `float64
 
 This allows me to keep memory-efficient data types during ingestion and feature processing while using a safer numerical type for the final evaluation calculations.
 
----
+------
 
 ## Issue 7: LightGBM Baseline With All Candidate Features
 
 For the time series forecasting model, I went with a non-recursive (direct) approach to predict the full 28-day window instead of a recursive one. The trade-off is that I lose the short, recent lags like lag_1, lag_2 and lag_7.
 
-A recursive approach would let me use those short lags and the most recent sales to forecast the next day. The problem is that each prediction then becomes an input for the next one, so if an early forecast is off, the error keeps compounding across the window. That felt riskier, since I'd essentially be feeding the model wrong information about past sales.
+A recursive approach was the alternative and would let me use those short lags and the most recent sales to forecast the next day. The problem is that each prediction then becomes an input for the next one, so if an early forecast is off, the error keeps compounding across the window. That felt riskier, since I'd essentially be feeding the model wrong information about past sales.
 
 For the initial LightGBM baseline, I used all candidate features during cross-validation.
 
-This improved the WRMSSE score compared with both the naive and seasonal naive baseline models.
+This improved the WRMSSE score to `0.629043` compared with both the naive and seasonal naive baseline models.
+
+`Naive Baseline : 1.4638
+Seasonl Baseline : 0.869
+LightGBM + All features : 0.629043`
 
 However, using all candidate features in the final model could introduce redundant or less useful features. I therefore wanted to identify which features or feature groups were actually contributing to the model.
 
-### Decision 9: Use Permutation Validation for Feature Selection
+### Decision 9: Use Feature Drop Validation Technique
 
-I used permutation validation to assess the contribution of different feature groups.
+I used feature drops validation technique to quickly check which features likely impact the performance of the model.
+During every fold of the cross validation I dropped certain features grouped within a feature group and observed the
+wrmsse score across the folds.
 
-* I grouped the candidate features into feature groups based on the type of information they represent.
-* I added a random **noise feature** to provide a reference threshold when deciding whether a feature group was providing meaningful information.
-* I trained the model using cross-validation and, for each validation fold, shuffled the values of one feature group at a time.
-* After shuffling a group, I calculated the **delta in WRMSSE** by comparing the shuffled score with the original validation WRMSSE. This showed how much model performance changed when the information from that feature group was disrupted.
-* I calculated the delta for each fold and then took the mean delta across the folds to compare the contribution of different feature groups.
 
-A larger positive increase in WRMSSE after shuffling indicates that the model was relying more heavily on that feature group. A delta close to the noise feature suggests that the group may not be providing much useful signal.
+**LightGBM baseline WRMSSE = 0.629043** 
 
-### Decision 10: Perform Permutation Testing During the Existing CV Run
+| Model                    | Fold 1   | Fold 2   | Fold 3   | Mean WRMSSE | Mean Delta | Folds Worse |
+|--------------------------|---------:|---------:|---------:|------------:|-----------:|------------:|
+| baseline                 | 0.689039 | 0.681166 | 0.516924 | 0.629043    | 0.000000   | 0           |
+| enc_item_store_dropped   | 0.694783 | 0.688421 | 0.566918 | 0.650041    | 0.020998   | 3           |
+| events_dropped           | 0.697881 | 0.699155 | 0.540617 | 0.645884    | 0.016841   | 3           |
+| ids_dropped              | 0.666442 | 0.661149 | 0.514679 | 0.614090    | -0.014953  | 0           |
+| intermittency_dropped    | 0.686140 | 0.689864 | 0.526902 | 0.634302    | 0.005259   | 2           |
+| lags_dropped             | 0.690365 | 0.687401 | 0.516593 | 0.631453    | 0.002410   | 2           |
+| price_change_dropped     | 0.696253 | 0.682279 | 0.518516 | 0.632349    | 0.003306   | 3           |
+| price_level_dropped      | 0.687979 | 0.691624 | 0.533872 | 0.637825    | 0.008782   | 2           |
+| rolling_mean_dropped     | 0.706299 | 0.672092 | 0.526439 | 0.634943    | 0.005900   | 2           |
+| seasonality_dropped      | 0.730048 | 0.603620 | 0.523050 | 0.618906    | -0.010137  | 2           |
+| snap_dropped             | 0.677893 | 0.678365 | 0.531658 | 0.629305    | 0.000262   | 1           |
+| trends_position_dropped  | 0.696758 | 0.688395 | 0.509915 | 0.631689    | 0.002646   | 2           |
+| weekly_pattern_dropped   | 0.929121 | 0.907045 | 0.921591 | 0.919252    | 0.290209   | 3           |
 
-* Rather than running another complete cross-validation cycle specifically for feature selection, I calculated the permutation deltas during the same CV run used for the initial model evaluation.
-* This reduced the overall computation time while giving me an early understanding of which feature groups were contributing most to the model.
-* To make training faster, I only used the last 2 years of sales data. I also cut down the number of trees, used fewer bins when the model looks for split points, and increased the learning rate.
-* Permutation validation was also simpler and faster than approaches such as forward selection or backward elimination because it does not require retraining the model for every possible feature combination.
-* Its a quicker way to understand which features are contributing to model's learning by just shuffling the features and computing delta.
-* During the initial run with all the candidate features below is the delta for each feature group across the folds.
+
+- After removing the `ids` feature group, the WRMSSE score slightly decreased across all folds compared to the baseline, indicating an improvement in forecasting performance. This suggests that the model may perform better without these raw ID features. Since the encoding features already capture information about entities such as `state_id`, `store_id`, and `item_id`, the raw ID features may provide redundant information or introduce unnecessary complexity. Therefore, I decided to drop the `ids` group.
   
-| Feature Group         | Fold 1  | Fold 2  | Fold 3  | Mean    | Folds Positive |
-|-----------------------|--------:|--------:|--------:|--------:|---------------:|
-| enc_item              | 1.2409  | 1.2796  | 1.3319  | 1.2841  | 3 |
-| positive_sales_stats  | 0.3970  | 0.4103  | 0.4040  | 0.4037  | 3 |
-| weekly_pattern        | 0.2805  | 0.2651  | 0.3259  | 0.2905  | 3 |
-| lags                  | 0.1991  | 0.1856  | 0.1989  | 0.1946  | 3 |
-| ids                   | 0.1451  | 0.1816  | 0.2045  | 0.1771  | 3 |
-| rolling_mean          | 0.1307  | 0.1384  | 0.1621  | 0.1437  | 3 |
-| enc_store             | 0.0278  | 0.0268  | 0.0259  | 0.0268  | 3 |
-| price_level           | 0.0052  | 0.0244  | 0.0356  | 0.0218  | 3 |
-| snap                  | 0.0024  | 0.0143  | 0.0355  | 0.0174  | 3 |
-| seasonality           | 0.0092  | 0.0016  | 0.0189  | 0.0099  | 3 |
-| events                | 0.0122  | 0.0103  | 0.0000  | 0.0075  | 2 |
-| price_change          | -0.0001 | 0.0016  | 0.0035  | 0.0017  | 2 |
-| store_dept_rolling    | 0.0020  | 0.0005  | 0.0002  | 0.0009  | 3 |
-| noise                 | 0.0000  | 0.0000  | 0.0000  | 0.0000  | 3 |
-| year                  | 0.0000  | 0.0000  | 0.0000  | 0.0000  | 0 |
-| intermittency         | -0.0100 | -0.0236 | -0.0142 | -0.0159 | 0 |
 
-* Across the fold run I observed that noise feature is never being used by trained model for any of the split hence it is not the right metric to be considered as threshold.
-* So, I decided to use the delta size of each feature group across the folds and mean delta to decide the candidate feature group to drop.
-* From the above table, I decided to `year`, `noise`, and `store_dep_rolling` features as their contribution to the model's learning is negligible. It makes sense because I have used only 1.5 years of data (from 2015 to 2016) which is just 2 values in the feature and not helping much for the tree to split on and decide on high and low seller item, it mostly constant.
-* `events` feature group has 0 delta in fold 3 but still I have kept it because it might be that for the fold 3 there were no events for that 28 days period/month so majorly the value was constant like just `No Event`, so not a differentiating factor for model to split on. But for fold 1 and fold 2 I can see there is positive delta.
-* After removing `store_dep_rolling` feature I ran the cross validation check again and observed that the wrmsse score increased to `0.69` rather than keeping it stable. After investigating I observed that the feature definition was incorrect, the sql was missing `ORDER BY date` clause while computing rolling averages within the window, this leads to data leakage. 
-* After adding the clause, I retrain the model by keeping `store_dep_rolling` feature and observed the honest wrmsse score as `0.69`
-  and permutation delta around `0.0026` which is more than previous run. It is also consistent across the folds `store_dept_rolling    0.0032  0.0018  0.0028  0.0026`. The contribution is modest and it carries some overlapping information to rolling features. But still I kept it as it not expensive to build and for model to split on.
 
-* New permutation score after fixing above issue:
+After dropping ids year, (state_id, store_id, cat_id,dept_id and item_id) features, splitting seasonility into dom,month and week
 
-| Feature Group         | Fold 1 | Fold 2 | Fold 3 | Mean   | Folds Positive |
-|-----------------------|-------:|-------:|-------:|-------:|---------------:|
-| enc_item              | 1.2088 | 1.2210 | 1.3000 | 1.2433 | 3 |
-| positive_sales_stats  | 0.4999 | 0.5180 | 0.5666 | 0.5282 | 3 |
-| weekly_pattern        | 0.2660 | 0.2495 | 0.3050 | 0.2735 | 3 |
-| rolling_mean          | 0.1752 | 0.1782 | 0.2051 | 0.1862 | 3 |
-| lags                  | 0.1995 | 0.1493 | 0.1914 | 0.1801 | 3 |
-| ids                   | 0.1551 | 0.1721 | 0.2037 | 0.1770 | 3 |
-| enc_store             | 0.0279 | 0.0245 | 0.0286 | 0.0270 | 3 |
-| price_level           | 0.0081 | 0.0243 | 0.0412 | 0.0245 | 3 |
-| snap                  | 0.0102 | 0.0116 | 0.0248 | 0.0155 | 3 |
-| events                | 0.0225 | 0.0110 | 0.0000 | 0.0112 | 2 |
-| seasonality           | 0.0080 | -0.0011 | 0.0240 | 0.0103 | 2 |
-| intermittency         | 0.0231 | -0.0075 | 0.0084 | 0.0080 | 2 |
-| price_change          | 0.0015 | 0.0036 | 0.0068 | 0.0040 | 3 |
-| store_dept_rolling    | 0.0032 | 0.0018 | 0.0028 | 0.0026 | 3 |
+| model                     | Fold 1  | Fold 2  | Fold 3  | Mean WRMSSE | Mean Delta | Folds Worse |
+|---------------------------|--------:|--------:|--------:|------------:|-----------:|------------:|
+| baseline                  | 0.666442 | 0.661149 | 0.514679 | 0.614090 | 0.000000 | 0 |
+| enc_item_store_dropped    | 0.704818 | 0.708249 | 0.579123 | 0.664063 | 0.049973 | 3 |
+| events_dropped            | 0.684380 | 0.696640 | 0.531460 | 0.637493 | 0.023403 | 3 |
+| intermittency_dropped     | 0.676599 | 0.653937 | 0.521163 | 0.617233 | 0.003142 | 2 |
+| lags_dropped              | 0.688286 | 0.676748 | 0.561885 | 0.642306 | 0.028216 | 3 |
+| price_change_dropped      | 0.665185 | 0.655020 | 0.522206 | 0.614137 | 0.000047 | 1 |
+| price_level_dropped       | 0.660096 | 0.647582 | 0.512595 | 0.606758 | -0.007333 | 0 |
+| seasonality_dom_dropped   | 0.648262 | 0.669426 | 0.516018 | 0.611235 | -0.002855 | 2 |
+| seasonality_month_dropped | 0.685715 | 0.669240 | 0.514392 | 0.623116 | 0.009025 | 2 |
+| seasonality_week_dropped  | 0.674890 | 0.674156 | 0.508472 | 0.619173 | 0.005082 | 2 |
+| snap_dropped              | 0.681866 | 0.659106 | 0.513791 | 0.618254 | 0.004164 | 1 |
+| trends_position_dropped   | 0.683638 | 0.658958 | 0.514199 | 0.618932 | 0.004841 | 1 |
+| weekly_pattern_dropped    | 0.916358 | 0.907156 | 0.943238 | 0.922251 | 0.308160 | 3 |
 
-* Looking at the table above, `price_change` and `intermittency` show a negative delta in fold 2, meaning the model actually did *better* when these features were shuffled. But in the other two folds (and on average) the delta is positive, so I decided to keep both of them.
-* When I removed the encoding features during training, the WRMSSE dropped to around `0.61` from `0.6904`. That was surprising, since in earlier runs these features had a higher delta and seemed to matter more than the others.
-* After some debugging, I found a bug. When computing the mean sales across groups (like `store, cat` or `store, dept`), I was using all items up to the cutoff. So every data point was seeing sales from *after* its own date too, which is basically leakage.
-* I fixed the feature definitions so that for each data point, the mean is computed only from past sales, shifted by the 28-day horizon.
-* After fixing that and dropping the ID features, I retrained the model and got a WRMSSE of `0.620671`.
-* I also tried removing the encoding features again to see their impact, and the score stayed about the same at `0.6206`. My guess is the model is already getting similar info from the rolling features. I kept them in anyway.
-* I added a new `trend_position` feature group. It looks at how each item is trending, both inside its store and across all stores. After retraining, the WRMSSE score dropped to `0.585` (~4.5% down), so the model got better.
-* Next, I tried some price comparison features. They compare an item's current price to its usual average price, and also to other items in the same department. After retraining, the WRMSSE score went up a little to `0.6144` (~5% ^), which is worse. So I'm removing these features for the next run.
+### Decision 10: Identifying best number of trees for the model
+
+For LightGBM global model
+
+- I wanted to identify best number of trees needed by the algorithm for better forecast and reducing overfitting.
+
+with 
+TREE_GRID = [250, 500, 750, 1000, 1250, 1500, 1750, 2000]
+
+| Trees | Fold 1 | Fold 2 | Fold 3 | Mean WRMSSE |
+|------:|-------:|-------:|-------:|------------:|
+| 100   | 0.6751 | 0.6358 | 0.5196 | 0.6102 |
+| 200   | 0.6541 | 0.6369 | 0.5079 | 0.5996 |
+| 300   | 0.6569 | 0.6383 | 0.5027 | 0.5993 |
+| 400   | 0.6572 | 0.6400 | 0.4993 | 0.5988 |
+| 500   | 0.6559 | 0.6401 | 0.4993 | 0.5984 |
+| 750   | 0.6624 | 0.6458 | 0.4988 | 0.6023 |
+| 1000  | 0.6701 | 0.6473 | 0.5076 | 0.6084 |
+| 1500  | 0.6727 | 0.6558 | 0.5100 | 0.6128 |
+| 2000  | 0.6764 | 0.6624 | 0.5124 | 0.6171 |
+
+Best tree count (lowest mean WRMSSE): 500
+
+| Model    | Fold 1  | Fold 2  | Fold 3  | Mean WRMSSE | Mean Delta | Folds Worse |
+|----------|--------:|--------:|--------:|------------:|-----------:|------------:|
+| baseline | 0.676429 | 0.662429 | 0.512352 | 0.617070 | 0.000000 | 0 |
+
+Chosen num_iterations: 400
+
+
+- After evaluating different numbers of estimators through cross-validation, 400 trees emerged as the best choice. This configuration achieved a lower WRMSSE across the validation folds and the lowest mean WRMSSE compared to the other configurations tested.
+
+- Based on these results, I trained the final global LightGBM model using 400 trees.
+
+`Global model test WRMSSE (400 trees): 0.5929`
+
+
+- I also developed 10 store-specific LightGBM models to investigate whether individual models could better capture store-level patterns and demand behaviours that might be overlooked by the global model.
+
+- For each store-specific model, I evaluated different numbers of estimators using cross-validation and selected the number that achieved a lower WRMSSE across the validation folds and the lowest mean WRMSSE compared to the other configurations tested.
+
+For store specific models
+
+with 
+TREE_GRID = [250, 500, 750, 1000, 1250, 1500, 1750, 2000]
+
+| Trees | Fold 1 | Fold 2 | Fold 3 | Mean WRMSSE |
+|------:|-------:|-------:|-------:|------------:|
+| 250   | 0.6411 | 0.5716 | 0.4830 | 0.5653 |
+| 500   | 0.6480 | 0.5781 | 0.4841 | 0.5701 |
+| 750   | 0.6577 | 0.5870 | 0.4868 | 0.5772 |
+| 1000  | 0.6643 | 0.5942 | 0.4893 | 0.5826 |
+| 1250  | 0.6724 | 0.6001 | 0.4923 | 0.5883 |
+| 1500  | 0.6814 | 0.6058 | 0.4931 | 0.5934 |
+| 1750  | 0.6868 | 0.6107 | 0.4935 | 0.5970 |
+| 2000  | 0.6927 | 0.6160 | 0.4955 | 0.6014 |
+
+
+with 
+TREE_GRID = [50, 100, 150, 200, 250, 300, 400]
+
+| Trees | Fold 1 | Fold 2 | Fold 3 | Mean WRMSSE |
+|------:|-------:|-------:|-------:|------------:|
+| 50    | 0.7741 | 0.6882 | 0.6309 | 0.6977 |
+| 100   | 0.6689 | 0.5806 | 0.5103 | 0.5866 |
+| 150   | 0.6484 | 0.5680 | 0.4877 | 0.5680 |
+| 200   | 0.6410 | 0.5689 | 0.4850 | 0.5650 |
+| 250   | 0.6411 | 0.5716 | 0.4830 | 0.5653 |
+| 300   | 0.6426 | 0.5727 | 0.4830 | 0.5661 |
+| 400   | 0.6426 | 0.5765 | 0.4842 | 0.5678 |
+
+
+* Based on the cross-validation results, 200 estimators emerged as the best choice for the store-specific models, achieving a lower WRMSSE across the validation folds and the lowest mean WRMSSE compared to the other configurations tested.
+
+
+After final training
+
+CV mean (200 trees):   0.5650
+Test (d_1914–d_1941):  0.5658
+Difference:            0.0008
+
+
+
+Ensembling ( LightGBM Global + Store speicif models)
+
+global only  test WRMSSE: 0.5934
+stores only  test WRMSSE: 0.5665
+average      test WRMSSE: 0.5720
+
+
+======
+
+## Error Analysis

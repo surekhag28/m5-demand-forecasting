@@ -41,7 +41,11 @@ def create_calendar_features(rel):
         """)
 
 
-def create_lag_features(rel, lags=(FORECAST_HORIZON, *range(29, 36), 56)):
+def create_lag_features(rel, horizon=FORECAST_HORIZON):
+    offset = (*range(7), 28)
+    print(f"offset: {offset}")
+    lags = [o + horizon for o in offset]
+    print(lags)
 
     window = "over (partition by item_id,store_id order by date)"
 
@@ -178,11 +182,11 @@ def create_trend_features(rel):
         "trend_features",
         """
 
-                    select *,rolling_mean_28/nullif(enc_item_store_mean,0) as trend_28_vs_long,
-                            rolling_mean_7/nullif(rolling_mean_28,0) as trend_7_vs_28,
-                            rolling_mean_28/nullif(rolling_mean_56,0) as trend_28_vs_56,
-                            rolling_mean_28/nullif(enc_store_dept_mean,0) as item_vs_dept,
-                            rolling_mean_28/nullif(enc_store_cat_mean,0) as item_vs_cat,
+                    select *,(rolling_mean_28+0.1)/nullif(enc_item_store_mean,0) as trend_28_vs_long,
+                            (rolling_mean_7+0.1)/(rolling_mean_28+0.1) as trend_7_vs_28,
+                            (rolling_mean_28+0.1)/(rolling_mean_56+0.1) as trend_28_vs_56,
+                            (rolling_mean_28+0.1)/nullif(enc_store_dept_mean,0) as item_vs_dept,
+                            (rolling_mean_28+0.1)/nullif(enc_store_cat_mean,0) as item_vs_cat,
                             enc_item_store_mean/nullif(enc_item_mean,0) as item_store_vs_global
                         from trend_features
 
@@ -192,8 +196,11 @@ def create_trend_features(rel):
 
 def build_features_direct():
     con, sales = _read_silver_data()
-
+    # horizons = [7, 14, 21, 28]
     sales = create_calendar_features(sales)
+    # for horizon in horizons:
+    #     sales = create_lag_features(sales, horizon=horizon)
+
     sales = create_lag_features(sales)
     sales = create_sales_intermittency_features(sales, horizon=FORECAST_HORIZON)
     sales = create_recent_demand_features(sales, horizon=FORECAST_HORIZON)

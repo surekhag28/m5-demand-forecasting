@@ -10,13 +10,41 @@ from src.config.config import (
     CUTOFF,
     FEATURE_GROUPS,
     FEATURES,
+    FINAL_TRAIN_CUTOFF,
     MODEL_DIR,
     TARGET,
 )
-from src.ml.evaluate import load_artifacts, save_artifacts
-from src.utils.train_utils import get_params, load_data, make_folds, split
+from src.ml.evaluate import save_artifacts
+from src.utils.train_utils import (
+    get_params,
+    load_data,
+    make_folds,
+    split,
+)
 
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+OOF_COLS = [
+    "item_id",
+    "store_id",
+    "cat_id",
+    "dept_id",
+    "state_id",
+    "date",
+    TARGET,
+    "sell_price",
+]
+
+hier_cols = [
+    "item_id",
+    "store_id",
+    "cat_id",
+    "dept_id",
+    "state_id",
+    "date",
+    TARGET,
+    "sell_price",
+]
 
 
 def get_scale_and_weights(train_df_full):
@@ -28,7 +56,7 @@ def get_scale_and_weights(train_df_full):
     return scale, weights
 
 
-def score_wrmsse(valid_df, scale_df, weights):
+def score_wrmsse(valid_df, scale_df, weights, debug=False, tag=None):
     from src.ml.evaluate import calculate_hierarchy_mse
 
     mse_df = calculate_hierarchy_mse(valid_df)
@@ -37,9 +65,31 @@ def score_wrmsse(valid_df, scale_df, weights):
         weights, on=["level", "series_id"], how="inner"
     )
 
-    metrics["rmsse"] = np.where(
-        metrics["mse"] > 0, np.sqrt(metrics["mse"] / metrics["scale"]), 0.0
-    )
+    # ---- debug: find series with scale 0 or missing, before dropping them ----
+    if debug:
+        bad_mask = metrics["scale"].isna() | (metrics["scale"] <= 0)
+        level_total = metrics.groupby("level")["dollar_sales"].transform("sum")
+
+        bad = metrics.loc[
+            bad_mask, ["level", "series_id", "scale", "mse", "dollar_sales"]
+        ].copy()
+        bad["weight"] = metrics.loc[bad_mask, "dollar_sales"] / level_total[bad_mask]
+        bad["causes_inf"] = bad["weight"] > 0
+        bad = bad.sort_values(["causes_inf", "weight"], ascending=False)
+
+        print(
+            f"\n[{tag}] scale 0/missing: {len(bad)} series, "
+            f"{bad['causes_inf'].sum()} with weight > 0 (these caused inf)"
+        )
+        print(bad["level"].value_counts().sort_index().to_string())
+        print(bad[bad["causes_inf"]].to_string(index=False))
+
+        if tag is not None:
+            bad.to_csv(f"./artifacts/zero_scale_series_{tag}.csv", index=False)
+
+    metrics = metrics[metrics["scale"] > 0].copy()
+
+    metrics["rmsse"] = np.sqrt(metrics["mse"] / metrics["scale"])
 
     metrics["weight"] = metrics["dollar_sales"] / metrics.groupby(by="level")[
         "dollar_sales"
@@ -53,156 +103,220 @@ def score_wrmsse(valid_df, scale_df, weights):
         .rename(columns={"weighted_rmsse": "wrmsse_level"})
     )
 
-    wrmsse = level_scores["wrmsse_level"].mean()
-
-    return wrmsse
+    return level_scores["wrmsse_level"].mean()
 
 
-def train(model_name):
-    params = get_params()
+import psutil
 
-    df = load_data(include_test=False, cutoff=CUTOFF)
-    df = df[df["year"].between(2015, 2016)]
 
-    end_date = df["date"].max()
-    valid_start = end_date - pd.Timedelta(days=27)
+def mem(tag):
+    used = psutil.Process().memory_info().rss / 1e9
+    free = psutil.virtual_memory().available / 1e9
+    print(f"[{tag}] process uses {used:.1f} GB | free RAM {free:.1f} GB", flush=True)
 
-    train_df = df[df["date"] < valid_start]
-    valid_df = df[df["date"] >= valid_start]
 
-    del df
-    print(train_df["date"].max(), valid_df["date"].min(), valid_df["date"].max())
-    print(len(train_df))
-    print(len(valid_df))
+def train_and_evaluate(model_name, n_trees=400):
+    final_params = {**get_params(), "num_iterations": n_trees}
 
+    filter = [("year", ">=", 2015), ("year", "<=", 2016)]
+    df = load_data(extra_filters=filter, include_test=False, cutoff=FINAL_TRAIN_CUTOFF)
+    gc.collect()
+
+    num_feats = [
+        c
+        for c in FEATURES
+        if pd.api.types.is_float_dtype(df[c]) or pd.api.types.is_integer_dtype(df[c])
+    ]
+    df[num_feats] = df[num_feats].astype("float32")
+    mem("after float32")
+
+    end_date = df["date"].max()  # d_1941
+    valid_start = end_date - pd.Timedelta(days=27)  # d_1914
+    train_mask = df["date"] < valid_start
+
+    print("train ends:", df.loc[train_mask, "date"].max().date())
+    print("test:", valid_start.date(), "→", end_date.date())
+
+    scale, weights = get_scale_and_weights(df.loc[train_mask, hier_cols])
+    gc.collect()
+
+    valid_df = df.loc[~train_mask].copy()
     train_data = lgb.Dataset(
-        train_df[FEATURES],
-        label=train_df[TARGET],
-        params=params,
+        df.loc[train_mask, FEATURES],
+        label=df.loc[train_mask, TARGET],
         free_raw_data=True,
     )
-    valid_data = lgb.Dataset(
-        valid_df[FEATURES],
-        label=valid_df[TARGET],
-        params=params,
-        free_raw_data=True,
-    )
+    del df
+    gc.collect()
 
-    del train_df, valid_df
-
-    model = lgb.train(
-        params,
-        train_data,
-        valid_sets=[valid_data],
-        callbacks=[
-            lgb.early_stopping(stopping_rounds=100),
-            lgb.log_evaluation(100),
-        ],
-    )
-
-    print(f"Models best iteration: {model.best_iteration}")
+    model = lgb.train(final_params, train_data)
     save_artifacts(model, model_name)
-    print("LightGBM model trained on entire dataset")
+    del train_data
+    gc.collect()
+
+    valid_df["prediction"] = model.predict(valid_df[FEATURES])
+    del model
+    gc.collect()
+
+    print(
+        "test rows:", len(valid_df), "| days:", valid_df["date"].nunique()
+    )  # 853,720 | 28
+
+    valid_df[OOF_COLS + ["prediction"]].rename(
+        columns={"prediction": "pred_global"}
+    ).to_parquet("./artifacts/test_pred_global.parquet", index=False)
+    score = score_wrmsse(valid_df, scale, weights)
+    print(f"Global model test WRMSSE ({n_trees} trees): {score:.4f}")
+
+    del valid_df
+    gc.collect()
+    return score
 
 
-def evaluate_test(model_name, filter=None):
-    from src.utils.train_utils import load_data
-
-    model = load_artifacts(model_name)
-    test_df = load_data(extra_filters=filter, include_test=True, cutoff=CUTOFF)
-    train_df_full = load_data(include_test=False, cutoff=CUTOFF)
-
-    test_df["prediction"] = model.predict(test_df[FEATURES])
-
-    scale, weights = get_scale_and_weights(train_df_full)
-    del train_df_full
-
-    wrmsse = score_wrmsse(test_df, scale, weights)
-    print(f"Final wrmsse of model {model_name} is: {wrmsse}")
-    return wrmsse
-
-
-def cv(df, params, folds, features, do_permutation=False):
+def cv(
+    df,
+    params,
+    features,
+    is_feature_validation=False,
+    log_path=None,
+    tree_grid=None,
+    oof_dir="./artifacts",
+):
 
     metric = []
-    perm_results = []
+    fold_scores = []
+    tree_rows = []
 
-    df_cut = df[(df["year"] >= 2015) & (df["year"] <= 2016)]
+    def train_and_score(train_df, valid_df, feats, scale, weight):
+
+        model = lgb.train(
+            params,
+            lgb.Dataset(train_df[feats], label=train_df[TARGET], free_raw_data=True),
+        )
+        valid_df["prediction"] = model.predict(valid_df[feats])
+        score = score_wrmsse(valid_df, scale, weight)
+
+        del model, valid_df
+        gc.collect()
+
+        return score
+
+    def train_and_score_grid(train_df, valid_df, feats, scale, weight, fold_no):
+        grid_parms = {**params, "num_iterations": max(tree_grid)}
+        model = lgb.train(
+            grid_parms,
+            lgb.Dataset(train_df[feats], label=train_df[TARGET], free_raw_data=True),
+        )
+
+        for n in tree_grid:
+            valid_df[f"pred_{n}"] = model.predict(valid_df[feats], num_iteration=n)
+            valid_df["prediction"] = valid_df[f"pred_{n}"]
+            score = score_wrmsse(valid_df, scale, weight)
+            tree_rows.append({"trees": n, "fold": fold_no, "wrmsse": score})
+            print(f"fold {fold_no} | trees {n:5d} | {score:.4f}", flush=True)
+
+        pred_cols = [f"pred_{n}" for n in tree_grid]
+        valid_df[hier_cols + pred_cols].to_parquet(
+            f"{oof_dir}/oof_global_fold{fold_no}.parquet", index=False
+        )
+
+        del model, train_df, valid_df
+        gc.collect()
+        return score  # score at the largest tree count = the baseline row, last one in the tree grid
+
+    def save(row):
+        metric.append(row)
+
+        report = pd.DataFrame(metric).pivot(
+            index="model", columns="fold", values="wrmsse"
+        )
+        fold_cols = report.columns.to_list()
+
+        deltas = report[fold_cols] - report.loc["baseline", fold_cols]
+        report["mean_wrmsse"] = report[fold_cols].mean(axis=1)
+        report["mean_delta"] = deltas.mean(axis=1)
+        report["folds_worse"] = (deltas > 0).sum(axis=1)
+
+        report.sort_values("mean_delta", ascending=False).round(4).to_csv(log_path)
+
+        print(
+            f"fold {row['fold']} | {row['model']:25s} | {row['wrmsse']:.4f}", flush=True
+        )
+
+    df_recent = df[(df["year"] >= 2015) & (df["year"] <= 2016)]
+    folds = make_folds(df_recent["date"].min().date(), df_recent["date"].max().date())
+    del df
+
     for i, fold in enumerate(folds):
-        print("train --> ", fold["train_start"], fold["train_end"])
-        print("valid --> ", fold["valid_start"], fold["valid_end"])
-
-        train_df, valid_df = split(df_cut, fold)
-        train_df_full, _ = split(df, fold)
-
-        print(train_df["date"].min(), train_df["date"].max())
-        print(valid_df["date"].min(), valid_df["date"].max())
-        print(train_df_full["date"].min(), train_df_full["date"].max())
-
-        scale, weight = get_scale_and_weights(train_df_full)
-        del train_df_full
-
-        train_data = lgb.Dataset(
-            train_df[features], label=train_df[TARGET], free_raw_data=True
+        print(
+            f"fold {i + 1}: train {fold['train_start']} → {fold['train_end']}, "
+            f"valid {fold['valid_start']} → {fold['valid_end']}"
         )
 
-        model = lgb.train(params, train_data, callbacks=[lgb.log_evaluation(50)])
-        del train_df, train_data
+        train_df, valid_df = split(df_recent, fold)
+        valid_df = valid_df.copy()
 
-        valid_df["prediction"] = model.predict(valid_df[features])
+        # train_df_full, _ = split(df, fold)
 
-        base_wrmsse = score_wrmsse(valid_df, scale, weight)
+        scale, weight = get_scale_and_weights(train_df[hier_cols])
 
-        print(base_wrmsse)
+        if tree_grid:
+            base_wrmsse = train_and_score_grid(
+                train_df, valid_df, features, scale, weight, fold_no=i + 1
+            )
+        else:
+            base_wrmsse = train_and_score(train_df, valid_df, features, scale, weight)
 
-        metric.append(
-            {"model": "lightgbm_global", "fold": i + 1, "wrmsse": base_wrmsse}
-        )
+        print(f"baseline: {base_wrmsse:.4f}")
+        save({"model": "baseline", "fold": i + 1, "wrmsse": base_wrmsse})
 
-        rng = np.random.default_rng(42)
-        if do_permutation:
+        fold_scores.append(base_wrmsse)
+
+        if is_feature_validation:
             for group, cols in FEATURE_GROUPS.items():
-                X_shuffled = valid_df[features].copy()
+                features_new = [feature for feature in features if feature not in cols]
+                if len(features_new) == len(features):
+                    continue
 
-                idx = rng.permutation(len(valid_df))
-                for col in cols:
-                    X_shuffled[col] = X_shuffled[col].values[idx]
-
-                valid_df["prediction"] = model.predict(X_shuffled[features])
-
-                del X_shuffled
-
-                s_wrmsse = score_wrmsse(valid_df, scale, weight)
-
-                perm_results.append(
-                    {"fold": i + 1, "group": group, "delta": s_wrmsse - base_wrmsse}
+                d_wrmsse = train_and_score(
+                    train_df, valid_df, features_new, scale, weight
                 )
-                print(f"Shuffled group {group}, delta: {s_wrmsse - base_wrmsse:+.4f}")
+                print(
+                    f"{group:18s} {d_wrmsse:.4f}  (delta {d_wrmsse - base_wrmsse:+.4f})"
+                )
+                save({"model": f"{group}_dropped", "fold": i + 1, "wrmsse": d_wrmsse})
 
-            del valid_df
-
-            gc.collect()
+        del train_df, valid_df
+        gc.collect()
 
     metric_df = pd.DataFrame(metric).pivot(
         index="model", columns="fold", values="wrmsse"
     )
-    metric_df["mean_wrmsse"] = metric_df.mean(axis=1)
-    print(metric_df)
+    fold_cols = metric_df.columns.to_list()
 
-    print(
-        f"Weighted root mean squared scaled error for lightgbm: {metric_df['mean_wrmsse'].iloc[0]}"
-    )
+    deltas = metric_df[fold_cols] - metric_df.loc["baseline", fold_cols]
+    metric_df["mean_wrmsse"] = metric_df[fold_cols].mean(axis=1)
+    metric_df["mean_delta"] = deltas.mean(axis=1)
+    metric_df["folds_worse"] = (deltas > 0).sum(axis=1)
 
-    if do_permutation:
-        perm = pd.DataFrame(perm_results).pivot(
-            index="group", columns="fold", values="delta"
+    if tree_grid:
+        tree_report = pd.DataFrame(tree_rows).pivot(
+            index="trees", columns="fold", values="wrmsse"
         )
-        perm["mean"] = perm.mean(axis=1)
-        fold_cols = [col for col in perm.columns if col != "mean"]
-        perm["folds_positive"] = (perm[fold_cols] > 0).sum(axis=1)
-        print(perm.sort_values("mean", ascending=False).round(4))
+        tree_report["mean_wrmsse"] = tree_report.mean(axis=1)
+        print("\nTree count report:")
+        print(tree_report.round(4))
+        tree_report.round(4).to_csv(f"{oof_dir}/global_tree_report.csv")
 
-        return metric_df, perm
+        best_n = int(tree_report["mean_wrmsse"].idxmin())
+        print(f"\nBest tree count (lowest mean WRMSSE): {best_n}")
+
+        metric_df.attrs["tree_report"] = tree_report
+        metric_df.attrs["num_iterations"] = best_n
+    else:
+        metric_df.attrs["num_iterations"] = params["num_iterations"]
+
+    print(metric_df)
 
     return metric_df
 
@@ -212,24 +326,17 @@ if __name__ == "__main__":
     params = get_params()
 
     df = load_data(include_test=False, cutoff=CUTOFF)
-    # df["noise"] = np.random.default_rng(42).random(len(df), dtype=np.float32) # removing noise as model is not using it
-    print(f"Data points: {len(df)}, {df['d'].min()}, {df['d'].max()}")
 
-    dead = (
-        df.groupby(["item_id", "store_id"])["sales"].agg(["sum", "std"]).reset_index()
-    )
-    print("series with zero sales in train window:", (dead["sum"] == 0).sum())
-    print("series with constant sales in train window:", (dead["std"] == 0).sum())
+    # Step 1: baseline + Feature Drop Validation (to find best features)
+    # metrics = cv(
+    #     df,
+    #     params,
+    #     FEATURES,
+    #     is_feature_validation=False,
+    #     log_path="./artifacts/cv_results_global.csv",
+    #     tree_grid=[100, 200, 300, 400, 500, 750, 1000, 1500, 2000],
+    # )
+    # print("Chosen num_iterations:", metrics.attrs["num_iterations"])
 
-    print(dead[dead["sum"] == 0][["item_id", "store_id"]])
-
-    folds = make_folds(df["date"].min().date(), df["date"].max().date())
-
-    # Step 1: baseline + permutation table
-    metrics = cv(
-        df, params, folds, FEATURES, do_permutation=True
-    )  # for cross validation for lightgbm baseline
-
-    # Step 3: Retraining the model with final features
-    # train(model_name)
-    # evaluate_test(model_name)
+    # Step 2: Final trained model - with best features + best number of trees + best params (from step 1) + final train cutoff (no cv)
+    train_and_evaluate(model_name, n_trees=400)

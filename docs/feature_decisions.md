@@ -63,6 +63,7 @@ Therefore, the model should have features that describe the recent sales magnitu
 * `rolling_positive_mean_7`
 * `rolling_positive_mean_28`
 * `rolling_positive_median_28`
+* `rolling_positive_std_28`
 * `rolling_positive_max_28`
 
 ---
@@ -151,8 +152,6 @@ Demand varies across different days of the week, and some mont
 * `month`
 * `year`
 * `is_weekend`
-
-
 
 Final Candidate Feature Table:
 
