@@ -33,7 +33,7 @@ Dataset link: [m5-forecasting](https://www.kaggle.com/competitions/m5-forecastin
 High level architecture at every layer in the platform - data ingestion, wrangling etc
 
 
-![M5 Demand Forecasting Architecture](docs/images/architecture.png)
+![M5 Demand Forecasting Architecture](docs/images/architecture.jpg)
 
 ## Data Pipeline
 
