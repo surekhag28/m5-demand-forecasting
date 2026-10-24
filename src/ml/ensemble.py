@@ -210,9 +210,7 @@ def evaluate():
 
     test_df = df[df["date"] >= test_start]
 
-    print(
-        "train ends:", (test_start - pd.Timedelta(days=1)).date()
-    )  # expect 2016-04-24
+    print("train ends:", (test_start - pd.Timedelta(days=1)).date())
     print("test:", test_start.date(), "→", end_date.date())
 
     scale, weights = get_scale_and_weights(df.loc[df["date"] < end_date, COLS])

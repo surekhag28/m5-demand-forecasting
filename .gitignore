@@ -14,4 +14,5 @@ data/
 
 # Generated prediction artifacts
 artifacts/*.csv
-artifacts/*.parquetartifacts/
+artifacts/*.parquet
+artifacts/

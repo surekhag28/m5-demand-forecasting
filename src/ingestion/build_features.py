@@ -73,7 +73,7 @@ def create_lag_features(rel):
                             store_id
                         order by
                             date
-                    ) as lag_1,
+                    )::INTEGER as lag_1,
                     lag (
                         case
                             when is_available = 1 then sales
@@ -86,7 +86,8 @@ def create_lag_features(rel):
                             store_id
                         order by
                             date
-                    ) as lag_7,
+                    )::INTEGER as lag_7,
+
                     lag (
                         case
                             when is_available = 1 then sales
@@ -99,7 +100,7 @@ def create_lag_features(rel):
                             store_id
                         order by
                             date
-                    ) as lag_14,
+                    )::INTEGER as lag_14,
                     lag (
                         case
                             when is_available = 1 then sales
@@ -112,7 +113,7 @@ def create_lag_features(rel):
                             store_id
                         order by
                             date
-                    ) as lag_28,
+                    )::INTEGER as lag_28,
         """)
 
 
@@ -364,144 +365,171 @@ def create_sales_magnitude_features(con, rel):
     # * `rolling_positive_mean_7`
     # * `rolling_positive_mean_28`
     # * `rolling_positive_median_28`
+    # * `rolling_positive_std_28`
     # * `rolling_positive_max_28`
 
     rel.create_view("sales_demand_magnitude", replace=True)
 
     return con.from_query("""
                 with
-                    post_launch as (
-                        select
-                            store_id,
-                            item_id,
-                            date,
-                            sales
-                        from
-                            sales_demand_magnitude
-                        where
-                            is_available = 1
-                    ),
-                    sales_demand as (
-                        select
-                            store_id,
-                            item_id,
-                            date,
-                            sales,
-                            case
-                                when count(*) over (
-                                    partition by
+                                post_launch as (
+                                    select
                                         store_id,
-                                        item_id
-                                    order by
-                                        date rows between 7 preceding
-                                        and 1 preceding
-                                ) = 7 then round(
-                                    avg(
-                                        case
-                                            when sales > 0 then sales
-                                        end
-                                    ) over (
-                                        partition by
-                                            store_id,
-                                            item_id
-                                        order by
-                                            date rows between 7 preceding
-                                            and 1 preceding
-                                    ),
-                                    2
-                                )
-                                else null
-                            end as rolling_positive_mean_7,
-                            case
-                                when count(*) over (
-                                    partition by
+                                        item_id,
+                                        date,
+                                        sales
+                                    from
+                                        sales_demand_magnitude
+                                    where
+                                        is_available = 1
+                                ),
+                                sales_demand as (
+                                    select
                                         store_id,
-                                        item_id
-                                    order by
-                                        date rows between 28 preceding
-                                        and 1 preceding
-                                ) = 28 then round(
-                                    avg(
+                                        item_id,
+                                        date,
+                                        sales,
                                         case
-                                            when sales > 0 then sales
-                                        end
-                                    ) over (
-                                        partition by
-                                            store_id,
-                                            item_id
-                                        order by
-                                            date rows between 28 preceding
-                                            and 1 preceding
-                                    ),
-                                    2
-                                )
-                                else null
-                            end as rolling_positive_mean_28,
-                            case
-                                when count(*) over (
-                                    partition by
-                                        store_id,
-                                        item_id
-                                    order by
-                                        date rows between 28 preceding
-                                        and 1 preceding
-                                ) = 28 then round(
-                                    median (
+                                            when count(*) over (
+                                                partition by
+                                                    store_id,
+                                                    item_id
+                                                order by
+                                                    date rows between 7 preceding
+                                                    and 1 preceding
+                                            ) = 7 then coalesce(round(
+                                                avg(
+                                                    case
+                                                        when sales > 0 then sales
+                                                    end
+                                                ) over (
+                                                    partition by
+                                                        store_id,
+                                                        item_id
+                                                    order by
+                                                        date rows between 7 preceding
+                                                        and 1 preceding
+                                                ),
+                                                2
+                                            ),0)
+                                            else null
+                                        end as rolling_positive_mean_7,
                                         case
-                                            when sales > 0 then sales
-                                        end
-                                    ) over (
-                                        partition by
-                                            store_id,
-                                            item_id
-                                        order by
-                                            date rows between 28 preceding
-                                            and 1 preceding
-                                    ),
-                                    2
-                                )
-                                else null
-                            end as rolling_positive_median_28,
-                            case
-                                when count(*) over (
-                                    partition by
-                                        store_id,
-                                        item_id
-                                    order by
-                                        date rows between 28 preceding
-                                        and 1 preceding
-                                ) = 28 then round(
-                                    max(
+                                            when count(*) over (
+                                                partition by
+                                                    store_id,
+                                                    item_id
+                                                order by
+                                                    date rows between 28 preceding
+                                                    and 1 preceding
+                                            ) = 28 then coalesce(round(
+                                                avg(
+                                                    case
+                                                        when sales > 0 then sales
+                                                    end
+                                                ) over (
+                                                    partition by
+                                                        store_id,
+                                                        item_id
+                                                    order by
+                                                        date rows between 28 preceding
+                                                        and 1 preceding
+                                                ),
+                                                2
+                                            ),0)
+                                            else null
+                                        end as rolling_positive_mean_28,
                                         case
-                                            when sales > 0 then sales
-                                        end
-                                    ) over (
-                                        partition by
-                                            store_id,
-                                            item_id
-                                        order by
-                                            date rows between 28 preceding
-                                            and 1 preceding
-                                    ),
-                                    2
+                                            when count(*) over (
+                                                partition by
+                                                    store_id,
+                                                    item_id
+                                                order by
+                                                    date rows between 28 preceding
+                                                    and 1 preceding
+                                            ) = 28 then coalesce(round(
+                                                median (
+                                                    case
+                                                        when sales > 0 then sales
+                                                    end
+                                                ) over (
+                                                    partition by
+                                                        store_id,
+                                                        item_id
+                                                    order by
+                                                        date rows between 28 preceding
+                                                        and 1 preceding
+                                                ),
+                                                2
+                                            ),0)
+                                            else null
+                                        end as rolling_positive_median_28,
+                                        case
+                                            when count(*) over (
+                                                partition by
+                                                    store_id,
+                                                    item_id
+                                                order by
+                                                    date rows between 28 preceding
+                                                    and 1 preceding
+                                            ) = 28 then coalesce(round(
+                                                STDDEV_SAMP(
+                                                    case
+                                                        when sales > 0 then sales
+                                                    end
+                                                ) over (
+                                                    partition by
+                                                        store_id,
+                                                        item_id
+                                                    order by
+                                                        date rows between 28 preceding
+                                                        and 1 preceding
+                                                ),
+                                                2
+                                            ),0)
+                                            else null
+                                        end as rolling_positive_std_28,
+                                        case
+                                            when count(*) over (
+                                                partition by
+                                                    store_id,
+                                                    item_id
+                                                order by
+                                                    date rows between 28 preceding
+                                                    and 1 preceding
+                                            ) = 28 then coalesce(round(
+                                                max(
+                                                    case
+                                                        when sales > 0 then sales
+                                                    end
+                                                ) over (
+                                                    partition by
+                                                        store_id,
+                                                        item_id
+                                                    order by
+                                                        date rows between 28 preceding
+                                                        and 1 preceding
+                                                ),
+                                                2
+                                            ),0)
+                                            else null
+                                        end as rolling_positive_max_28,
+                                    from
+                                        post_launch
                                 )
-                                else null
-                            end as rolling_positive_max_28,
-                        from
-                            post_launch
-                    )
-                select
-                    s.*,
-                    d.rolling_positive_mean_7,
-                    rolling_positive_mean_28,
-                    rolling_positive_median_28,
-                    rolling_positive_max_28
-                from
-                    sales_demand_magnitude as s
-                    left join sales_demand as d on s.store_id = d.store_id
-                    and s.item_id = d.item_id
-                    and s.date = d.date
-        """)
+                            select
+                                s.*,
+                                d.rolling_positive_mean_7,
+                                rolling_positive_mean_28,
+                                rolling_positive_median_28,
+                                rolling_positive_std_28,
+                                rolling_positive_max_28
+                            from
+                                sales_demand_magnitude as s
+                                left join sales_demand as d on s.store_id = d.store_id
+                                and s.item_id = d.item_id
+                                and s.date = d.date
+                        """)
 
 
 def build_features():
