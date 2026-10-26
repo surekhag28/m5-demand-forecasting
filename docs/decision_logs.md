@@ -419,6 +419,9 @@ Based on the cross-validation results, **200 estimators** emerged as the best ch
 
 ## Error Analysis
 
+
+
+
 ### Error Analysis by Store
 
 The store-level analysis compares forecasting performance across the ten stores using mean RMSSE, median RMSSE, and the percentage of item-store series with RMSSE greater than 1.
@@ -521,6 +524,9 @@ This analysis examines how forecasting performance varies with sales intermitten
 | Low intermittency | 11,488 | 0.691135 | 0.52 | 0.561489 | 0.739618 | 72.85% |
 | Moderately intermittent | 15,212 | 0.698353 | 0.50 | 0.194975 | 0.246394 | 25.30% |
 | Highly intermittent | 3,774 | 1.026709 | 0.51 | 0.014272 | 0.013988 | 1.85% |
+
+=============
+
 
 
 
