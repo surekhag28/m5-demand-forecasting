@@ -34,6 +34,16 @@ This document captures the key issues, decisions, and trade-offs made during dat
       - [Store-Specific LightGBM Models](#store-specific-lightgbm-models)
       - [Ensembling (Global + Store-Specific Models)](#ensembling-global--store-specific-models)
   - [Error Analysis](#error-analysis)
+    - [Error Analysis by Store](#error-analysis-by-store)
+      - [Key Observations](#key-observations)
+    - [Error Analysis by Category](#error-analysis-by-category)
+      - [Key Observations](#key-observations-1)
+    - [Error Analysis by Sales Frequency](#error-analysis-by-sales-frequency)
+      - [Key Observations](#key-observations-2)
+    - [WRMSSE by Store](#wrmsse-by-store)
+    - [WRMSSE by Category](#wrmsse-by-category)
+    - [WRMSSE by Price Band](#wrmsse-by-price-band)
+    - [WRMSSE by Sales Frequency](#wrmsse-by-sales-frequency)
 
 ---
 
@@ -409,4 +419,109 @@ Based on the cross-validation results, **200 estimators** emerged as the best ch
 
 ## Error Analysis
 
-_To be completed._
+### Error Analysis by Store
+
+The store-level analysis compares forecasting performance across the ten stores using mean RMSSE, median RMSSE, and the percentage of item-store series with RMSSE greater than 1.
+
+| Store | Number of Series | Mean RMSSE | Median RMSSE | Series with RMSSE > 1 (%) | Share of Series (%) |
+|:---|---:|---:|---:|---:|---:|
+| CA_2 | 3,048 | 0.8442 | 0.570 | 20.54% | 10.00% |
+| WI_2 | 3,048 | 0.7526 | 0.530 | 17.75% | 10.00% |
+| TX_3 | 3,046 | 0.7494 | 0.515 | 16.58% | 10.00% |
+| CA_3 | 3,047 | 0.7313 | 0.510 | 14.77% | 10.00% |
+| CA_4 | 3,046 | 0.7086 | 0.510 | 16.55% | 10.00% |
+| WI_3 | 3,048 | 0.7303 | 0.510 | 17.19% | 10.00% |
+| CA_1 | 3,048 | 0.8280 | 0.500 | 14.53% | 10.00% |
+| WI_1 | 3,047 | 0.6744 | 0.480 | 13.29% | 10.00% |
+| TX_2 | 3,048 | 0.6496 | 0.470 | 14.27% | 10.00% |
+| TX_1 | 3,048 | 0.6945 | 0.460 | 14.73% | 10.00% |
+
+#### Key Observations
+
+- **CA_2 has the highest forecasting error**, with a mean RMSSE of 0.8442 and 20.54% of its series having RMSSE greater than 1. This makes it a priority for further investigation.
+- **CA_1 also has a high mean RMSSE of 0.8280**, although its percentage of series with RMSSE greater than 1 is lower at 14.53%. This suggests that a smaller number of high-error series may be pulling its mean upward.
+- **TX_2 has the lowest mean RMSSE**, at 0.6496, indicating better average forecasting performance than the other stores.
+- **The median RMSSE is lower than the mean RMSSE for every store.** This suggests that higher-error series are increasing the average error across stores.
+- Each store accounts for approximately 10% of the series, so differences in mean RMSSE are not simply explained by one store having substantially more series.
+
+---
+
+### Error Analysis by Category
+
+The category-level analysis compares forecasting errors across FOODS, HOUSEHOLD, and HOBBIES.
+
+| Category | Number of Series | Mean RMSSE | Median RMSSE | Series with RMSSE > 1 (%) | Share of Series (%) |
+|:---|---:|---:|---:|---:|---:|
+| FOODS | 14,366 | 0.7791 | 0.530 | 17.67% | 47.14% |
+| HOUSEHOLD | 10,468 | 0.6773 | 0.490 | 14.19% | 34.35% |
+| HOBBIES | 5,640 | 0.7367 | 0.480 | 15.23% | 18.51% |
+
+#### Key Observations
+
+- **FOODS has the highest mean RMSSE**, at 0.7791, and the highest proportion of series with RMSSE greater than 1, at 17.67%.
+- **FOODS accounts for 47.14% of all item-store series**, so its larger share of high-error series may partly reflect its larger representation in the dataset.
+- **HOUSEHOLD has the lowest mean RMSSE and the lowest percentage of series with RMSSE greater than 1**, suggesting better average forecasting performance.
+- **HOBBIES has a higher mean RMSSE than HOUSEHOLD**, despite having a slightly lower median RMSSE. This suggests that higher-error series may be having a greater influence on its average.
+
+### Error Analysis by Sales Frequency
+
+This analysis examines how forecasting performance varies with sales intermittency, helping identify whether items with infrequent sales are more difficult to forecast than items with more regular demand.
+
+| Sales Frequency | Number of Series | Mean RMSSE | Median RMSSE | Series with RMSSE > 1 (%) | Share of Series (%) |
+|:---|---:|---:|---:|---:|---:|
+| Low intermittency | 11,488 | 0.6911 | 0.520 | 13.78% | 37.70% |
+| Highly intermittent | 3,774 | 1.0267 | 0.510 | 23.77% | 12.38% |
+| Moderately intermittent | 15,212 | 0.6984 | 0.500 | 15.79% | 49.92% |
+
+#### Key Observations
+
+- **Highly intermittent series have the highest mean RMSSE**, at 1.0267, exceeding the RMSSE benchmark of 1. Approximately 23.77% of these series have RMSSE greater than 1, compared with 13.78% for low-intermittency series.
+- **The mean RMSSE for highly intermittent series is much higher than its median RMSSE.** The mean is 1.0267, while the median is 0.51. This suggests that a subset of highly intermittent series has substantially higher errors, pulling up the average.
+- **Moderately intermittent series represent the largest group**, accounting for 49.92% of all series. Their mean RMSSE is 0.6984, with 15.79% of series having RMSSE greater than 1.
+- **Low-intermittency series have the lowest percentage of high-error series**, at 13.78%, and a mean RMSSE of 0.6911, indicating more consistent forecasting performance than the highly intermittent group.
+
+### WRMSSE by Store
+
+| Store | Number of Series | Mean RMSSE | Median RMSSE | Weighted Error Contribution | Total Weight | Share of Weighted Error |
+| ----- | ---------------- | ---------- | ------------ | --------------------------- | ------------ | ----------------------- |
+| CA_3  | 3,047            | 0.731280   | 0.510        | 0.120758                    | 0.155628     | 15.67%                  |
+| WI_2  | 3,048            | 0.752618   | 0.530        | 0.095776                    | 0.116622     | 12.43%                  |
+| CA_2  | 3,048            | 0.844242   | 0.570        | 0.093162                    | 0.110247     | 12.09%                  |
+| CA_1  | 3,048            | 0.828005   | 0.500        | 0.081615                    | 0.110888     | 10.59%                  |
+| TX_3  | 3,046            | 0.749448   | 0.515        | 0.076071                    | 0.096535     | 9.87%                   |
+| TX_2  | 3,048            | 0.649580   | 0.470        | 0.067864                    | 0.095201     | 8.81%                   |
+| WI_3  | 3,048            | 0.730338   | 0.510        | 0.067696                    | 0.084593     | 8.78%                   |
+| WI_1  | 3,047            | 0.674365   | 0.480        | 0.060920                    | 0.087117     | 7.90%                   |
+| TX_1  | 3,048            | 0.694455   | 0.460        | 0.060248                    | 0.077560     | 7.82%                   |
+| CA_4  | 3,046            | 0.708601   | 0.510        | 0.046626                    | 0.065608     | 6.05%                   |
+
+### WRMSSE by Category
+
+| Category  | Number of Series | Mean RMSSE | Median RMSSE | Weighted Error Contribution | Total Weight | Share of Weighted Error |
+| --------- | ---------------- | ---------- | ------------ | --------------------------- | ------------ | ----------------------- |
+| FOODS     | 14,366           | 0.779132   | 0.530        | 0.464662                    | 0.568586     | 60.29%                  |
+| HOUSEHOLD | 10,468           | 0.677294   | 0.490        | 0.224718                    | 0.303335     | 29.16%                  |
+| HOBBIES   | 5,640            | 0.736699   | 0.480        | 0.081357                    | 0.128079     | 10.56%                  |
+
+### WRMSSE by Price Band
+
+| Price Band | Number of Series | Mean RMSSE | Median RMSSE | Weighted Error Contribution | Total Weight | Share of Weighted Error |
+|:---|---:|---:|---:|---:|---:|---:|
+| $2-5 | 14,712 | 0.733003 | 0.51 | 0.344372 | 0.427084 | 44.68% |
+| $5-10 | 7,066 | 0.702228 | 0.51 | 0.213811 | 0.280457 | 27.74% |
+| $1-2 | 4,679 | 0.794721 | 0.51 | 0.107383 | 0.137964 | 13.93% |
+| $10+ | 1,810 | 0.810702 | 0.49 | 0.076594 | 0.115455 | 9.94% |
+| <$1 | 2,207 | 0.682442 | 0.46 | 0.028577 | 0.039039 | 3.71% |
+
+
+### WRMSSE by Sales Frequency
+
+| Sales Frequency | Number of Series | Mean RMSSE | Median RMSSE | Weighted Error Contribution | Total Weight | Share of Weighted Error |
+|:---|---:|---:|---:|---:|---:|---:|
+| Low intermittency | 11,488 | 0.691135 | 0.52 | 0.561489 | 0.739618 | 72.85% |
+| Moderately intermittent | 15,212 | 0.698353 | 0.50 | 0.194975 | 0.246394 | 25.30% |
+| Highly intermittent | 3,774 | 1.026709 | 0.51 | 0.014272 | 0.013988 | 1.85% |
+
+
+
+
