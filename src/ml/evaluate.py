@@ -137,21 +137,48 @@ def calculate_hierarchy_weights(train_df: pd.DataFrame):
     return pd.concat(results, ignore_index=True)
 
 
-def evaluate(train_df: pd.DataFrame, val_df: pd.DataFrame):
-    train_df = train_df.astype({"sales": "float64", "sell_price": "float64"})
-    val_df = val_df.astype({"sales": "float64", "prediction": "float64"})
+def get_scale_and_weights(train_df):
+    from src.ml.evaluate import calculate_hierarchy_scales, calculate_hierarchy_weights
 
-    scale_df = calculate_hierarchy_scales(train_df)
-    mse_df = calculate_hierarchy_mse(val_df)
+    scale = calculate_hierarchy_scales(train_df)
     weights = calculate_hierarchy_weights(train_df)
+
+    return scale, weights
+
+
+def score_wrmsse(valid_df, scale_df, weights, debug=False, tag=None):
+
+    mse_df = calculate_hierarchy_mse(valid_df)
 
     metrics = scale_df.merge(mse_df, on=["level", "series_id"], how="inner").merge(
         weights, on=["level", "series_id"], how="inner"
     )
 
-    metrics["rmsse"] = np.where(
-        metrics["mse"] > 0, np.sqrt(metrics["mse"] / metrics["scale"]), 0.0
-    )
+    # ---- debug: find series with scale 0 or missing, before dropping them ----
+    if debug:
+        bad_mask = metrics["scale"].isna() | (metrics["scale"] <= 0)
+        level_total = metrics.groupby("level")["dollar_sales"].transform("sum")
+
+        bad = metrics.loc[
+            bad_mask, ["level", "series_id", "scale", "mse", "dollar_sales"]
+        ].copy()
+        bad["weight"] = metrics.loc[bad_mask, "dollar_sales"] / level_total[bad_mask]
+        bad["causes_inf"] = bad["weight"] > 0
+        bad = bad.sort_values(["causes_inf", "weight"], ascending=False)
+
+        print(
+            f"\n[{tag}] scale 0/missing: {len(bad)} series, "
+            f"{bad['causes_inf'].sum()} with weight > 0 (these caused inf)"
+        )
+        print(bad["level"].value_counts().sort_index().to_string())
+        print(bad[bad["causes_inf"]].to_string(index=False))
+
+        if tag is not None:
+            bad.to_csv(f"./artifacts/zero_scale_series_{tag}.csv", index=False)
+
+    metrics = metrics[metrics["scale"] > 0].copy()
+
+    metrics["rmsse"] = np.sqrt(metrics["mse"] / metrics["scale"])
 
     metrics["weight"] = metrics["dollar_sales"] / metrics.groupby(by="level")[
         "dollar_sales"
@@ -165,9 +192,7 @@ def evaluate(train_df: pd.DataFrame, val_df: pd.DataFrame):
         .rename(columns={"weighted_rmsse": "wrmsse_level"})
     )
 
-    wrmsse = level_scores["wrmsse_level"].mean()
-
-    return level_scores, wrmsse
+    return level_scores["wrmsse_level"].mean()
 
 
 def save_artifacts(model, model_name):

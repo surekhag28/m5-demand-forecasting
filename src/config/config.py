@@ -16,7 +16,7 @@ RESULTS_PATH = PROJECT_ROOT / "data" / "results"
 SILVER_SALES_PATH = PROCESSED_DIR / "*.parquet"
 
 MODEL_DIR = PROJECT_ROOT / "models"
-
+GLOBAL_MODEL_NAME = "lgb_global_final"
 
 CHUNK_SIZE = 1000
 CALENDAR_ROWS = 1969
@@ -110,11 +110,11 @@ GROUP_ENC = {
 }
 
 FEATURES = [
-    # "item_id",
-    # "store_id",
-    # "state_id",
-    # "cat_id",
-    # "dept_id",
+    "item_id",  # --
+    "store_id",  # --
+    "state_id",  # --
+    "cat_id",  # --
+    "dept_id",  # --
     "month",
     # "year",
     # "weekday",
@@ -122,7 +122,7 @@ FEATURES = [
     "day_of_week",
     "day_of_month",
     "is_weekend",
-    # "sell_price",
+    "sell_price",  # --
     "event_name_1",
     "event_type_1",
     "snap",
@@ -137,7 +137,7 @@ FEATURES = [
     "lag_56",
     "rolling_positive_rate_7",
     "rolling_positive_rate_28",
-    # "rolling_zero_rate_28",
+    "rolling_zero_rate_28",  # --
     "days_since_last_sale",
     "rolling_mean_7",
     "rolling_mean_28",
@@ -189,10 +189,10 @@ STORES = [
 
 
 FEATURE_GROUPS = {
-    # "ids": ["item_id", "store_id", "state_id", "cat_id", "dept_id"],
+    # "ids": ["item_id", "store_id", "state_id", "cat_id", "dept_id"], #--
     # calendar
     "weekly_pattern": ["day_of_week", "is_weekend"],
-    # "seasonality": ["month", "week_of_year", "day_of_month"],
+    # "seasonality": ["month", "week_of_year", "day_of_month"], #--
     # "year": ["year"],
     "seasonality_month": ["month"],
     "seasonality_week": ["week_of_year"],
@@ -200,7 +200,7 @@ FEATURE_GROUPS = {
     "events": ["event_name_1", "event_type_1"],
     "snap": ["snap"],
     "price_level": [
-        # "sell_price",
+        "sell_price",  # --
         "price_max",
         "price_min",
         "price_mean",
@@ -231,20 +231,21 @@ FEATURE_GROUPS = {
         "rolling_positive_std_28",
         "rolling_positive_max_28",
     ],
-    # "rolling_mean": [
-    #     "rolling_mean_7",
-    #     "rolling_mean_28",
-    #     "rolling_mean_56",
-    #     "rolling_positive_mean_7",
-    #     "rolling_positive_mean_28",
-    #     "rolling_positive_median_28",
-    #     "rolling_positive_std_28",
-    #     "rolling_positive_max_28",
-    # ],
+    # ----------
+    "rolling_mean": [
+        "rolling_mean_7",
+        "rolling_mean_28",
+        "rolling_mean_56",
+        "rolling_positive_mean_7",
+        "rolling_positive_mean_28",
+        "rolling_positive_median_28",
+        "rolling_positive_std_28",
+        "rolling_positive_max_28",
+    ],
     "intermittency": [
         "rolling_positive_rate_7",
         "rolling_positive_rate_28",
-        # "rolling_zero_rate_28",
+        # "rolling_zero_rate_28", #--
         "days_since_last_sale",
     ],
     "enc_item_store": [
