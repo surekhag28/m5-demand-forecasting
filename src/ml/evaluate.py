@@ -3,8 +3,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.config.config import MODEL_DIR
-
 HIERARCHY_LEVELS = {
     "total": [],
     "state": ["state_id"],
@@ -193,16 +191,3 @@ def score_wrmsse(valid_df, scale_df, weights, debug=False, tag=None):
     )
 
     return level_scores["wrmsse_level"].mean()
-
-
-def save_artifacts(model, model_name):
-
-    model.save_model(MODEL_DIR / f"{model_name}.txt")
-
-
-def load_artifacts(model_name):
-    import lightgbm as lgb
-
-    model = lgb.Booster(model_file=str(MODEL_DIR / f"{model_name}.txt"))
-
-    return model

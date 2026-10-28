@@ -7,6 +7,7 @@ from src.config.config import (
     CAT_COLS,
     FORECAST_HORIZON,
     GOLD_DIR,
+    MODEL_DIR,
     N_FOLDS,
 )
 from src.utils.utils import get_optimised_data
@@ -62,6 +63,19 @@ def split(df: pd.DataFrame, fold: dict):
     ]
 
     return train_df, valid_df
+
+
+def save_artifacts(model, model_name):
+
+    model.save_model(MODEL_DIR / f"{model_name}.txt")
+
+
+def load_artifacts(model_name):
+    import lightgbm as lgb
+
+    model = lgb.Booster(model_file=str(MODEL_DIR / f"{model_name}.txt"))
+
+    return model
 
 
 # lightgbm baseline params - global model
