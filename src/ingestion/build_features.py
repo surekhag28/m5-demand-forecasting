@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import duckdb as db
 
-from src.config.config import (
-    END_YEAR,
-    FORECAST_HORIZON,
-    GOLD_DIR,
-    SILVER_SALES_PATH,
-    START_YEAR,
-)
+from src.config.config import get_settings
+from src.utils.logging_utils import get_logger, setup_logging
+
+setup_logging()
+log = get_logger(__name__)
+settings = get_settings()
+
+BUCKET = Path(settings.storage.bucket)
+SILVER_BASE = BUCKET / settings.storage.silver
+GOLD_BASE = BUCKET / settings.storage.gold
 
 
 def _read_silver_data():
@@ -22,10 +27,10 @@ def _read_silver_data():
         SELECT item_id, store_id, state_id, cat_id, dept_id,d,
                date,wm_yr_wk, min(date) over(partition by item_id,store_id order by date) as launch_date,year, month, weekday,
                sell_price, event_name_1, event_type_1, snap, sales
-        FROM read_parquet('{SILVER_SALES_PATH}')
+        FROM read_parquet('{SILVER_BASE}')
         WHERE sell_price IS NOT NULL
           AND NOT isnan(sell_price)
-          AND year>={START_YEAR} and year<={END_YEAR}
+          AND year>={settings.data.training_window.start_year} and year<={settings.data.training_window.end_year}
     """)
 
     return con, sales
@@ -41,11 +46,10 @@ def create_calendar_features(rel):
         """)
 
 
-def create_lag_features(rel, horizon=FORECAST_HORIZON):
-    offset = (*range(7), 28)
-    print(f"offset: {offset}")
+def create_lag_features(rel, horizon):
+    offset = (*range(8), 28)
+
     lags = [o + horizon for o in offset]
-    print(lags)
 
     window = "over (partition by item_id,store_id order by date)"
 
@@ -56,7 +60,7 @@ def create_lag_features(rel, horizon=FORECAST_HORIZON):
     return rel.project(f"*, {lag_cols}")
 
 
-def create_sales_intermittency_features(rel, horizon=FORECAST_HORIZON):
+def create_sales_intermittency_features(rel, horizon):
 
     partition = "partition by item_id, store_id order by date"
 
@@ -80,7 +84,7 @@ def create_sales_intermittency_features(rel, horizon=FORECAST_HORIZON):
     )
 
 
-def create_recent_demand_features(rel, horizon=FORECAST_HORIZON):
+def create_recent_demand_features(rel, horizon):
 
     partition = "partition by item_id,store_id order by date"
 
@@ -101,7 +105,7 @@ def create_recent_demand_features(rel, horizon=FORECAST_HORIZON):
     return rel.query("recent_demand", f"select *, {cols} from recent_demand")
 
 
-def create_sales_magnitude_features(rel, horizon=FORECAST_HORIZON):
+def create_sales_magnitude_features(rel, horizon):
 
     partition = "partition by item_id,store_id order by date"
 
@@ -146,7 +150,7 @@ def create_price_features(rel):
     return rel.query("price_momentum", f"select *, {cols} from price_momentum")
 
 
-def create_store_dept_rolling(rel, horizon=FORECAST_HORIZON):
+def create_store_dept_rolling(rel, horizon):
 
     daily = rel.query(
         "p",
@@ -165,10 +169,8 @@ def create_store_dept_rolling(rel, horizon=FORECAST_HORIZON):
 
 def create_encoding_features(rel, horizon):
 
-    from src.config.config import GROUP_ENC
-
     cols = []
-    for name, keys in GROUP_ENC.items():
+    for name, keys in settings.features.encodings.items():
         window = f"over (partition by {keys} order by date range between unbounded preceding and interval {horizon} days preceding)"
         cols.append(f"avg(sales) {window} as enc_{name}_mean")
         cols.append(f"stddev(sales) {window} as enc_{name}_std")
@@ -194,34 +196,33 @@ def create_trend_features(rel):
     )
 
 
-def build_features_direct():
+def build_features():
+    log.info("Started features building from silver data : %s", SILVER_BASE)
     con, sales = _read_silver_data()
-    # horizons = [7, 14, 21, 28]
-    sales = create_calendar_features(sales)
-    # for horizon in horizons:
-    #     sales = create_lag_features(sales, horizon=horizon)
+    horizon = settings.data.forecast_horizon
 
-    sales = create_lag_features(sales)
-    sales = create_sales_intermittency_features(sales, horizon=FORECAST_HORIZON)
-    sales = create_recent_demand_features(sales, horizon=FORECAST_HORIZON)
-    sales = create_sales_magnitude_features(sales, horizon=FORECAST_HORIZON)
+    sales = create_calendar_features(sales)
+    sales = create_lag_features(sales, horizon)
+    sales = create_sales_intermittency_features(sales, horizon)
+    sales = create_recent_demand_features(sales, horizon)
+    sales = create_sales_magnitude_features(sales, horizon)
     sales = create_price_features(sales)
-    sales = create_store_dept_rolling(sales)
-    sales = create_encoding_features(sales, horizon=FORECAST_HORIZON)
+    sales = create_store_dept_rolling(sales, horizon)
+    sales = create_encoding_features(sales, horizon)
     sales = create_trend_features(sales)
 
-    # sales.filter("store_id=='WI_2' AND item_id=='FOODS_1_030'").order("date").show()
-
     sales.order("store_id, item_id, date")
+
     sales.write_parquet(
-        str(GOLD_DIR) + "/features.parquet",
-        overwrite=True,
+        str(GOLD_BASE),
+        partition_by=["year"],
         compression="zstd",
+        overwrite=True,
     )
 
-    print(f"Candidate features created: {GOLD_DIR}")
+    log.info("Candidate features created: %s", GOLD_BASE)
     con.close()
 
 
 if __name__ == "__main__":
-    build_features_direct()
+    build_features()

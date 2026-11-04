@@ -1,28 +1,35 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
-from src.config.config import (
-    CALENDAR_COLUMNS,
-    CALENDAR_PATH,
+from src.config.config import get_settings
+from src.config.exp_config import (
     CALENDAR_ROWS,
-    CHUNK_SIZE,
-    FINAL_COLUMNS,
-    ID_COLUMNS,
-    PRICE_COLUMNS,
-    PRICES_PATH,
     PRICES_ROWS,
-    PROCESSED_DIR,
     SALES_MELTED_ROWS,
-    SALES_PATH,
 )
 from src.data_quality.checks import (
     validate_bronze_calendar,
     validate_bronze_price,
     validated_silver_sales,
 )
+from src.utils.logging_utils import get_logger, setup_logging
 from src.utils.utils import memory_usage
+
+setup_logging(level="INFO", fmt="text")
+log = get_logger(__name__)
+
+settings = get_settings()
+
+BUCKET = Path(settings.storage.bucket)
+BRONZE_BASE = BUCKET / settings.storage.bronze
+CALENDAR_PATH = BRONZE_BASE / settings.storage.cander_file
+PRICES_PATH = BRONZE_BASE / settings.storage.price_file
+SALES_PATH = BRONZE_BASE / settings.storage.sales_file
+PROCESSED_DIR = Path(settings.storage.silver)
 
 
 def get_optimised_data(data: pd.DataFrame) -> pd.DataFrame:
@@ -50,13 +57,16 @@ def get_optimised_data(data: pd.DataFrame) -> pd.DataFrame:
 def load_calendar() -> pd.DataFrame:
     """Loads calendar dataset from CSV file"""
     try:
-        calendar = pd.read_csv(CALENDAR_PATH, usecols=CALENDAR_COLUMNS)
+        calendar = pd.read_csv(
+            CALENDAR_PATH, usecols=settings.ingestion.calendar_columns
+        )
     except FileNotFoundError:
-        print(f"Unable to read file: {CALENDAR_PATH}")
+        log.exception("Unable to read file: %s", CALENDAR_PATH)
         raise
 
-    print(
-        f"Memory usage of calendar dataset before downcasting: {memory_usage(calendar)}"
+    log.info(
+        "Memory usage of calendar dataset before downcasting: %s",
+        memory_usage(calendar),
     )
 
     calendar["date"] = pd.to_datetime(calendar["date"])
@@ -67,8 +77,8 @@ def load_calendar() -> pd.DataFrame:
 
     optimsed_calendar = get_optimised_data(calendar)
 
-    print(
-        f"Memory usage of calendar dataset after downcasting: {memory_usage(calendar)}"
+    log.info(
+        "Memory usage of calendar dataset after downcasting: %s", memory_usage(calendar)
     )
 
     return optimsed_calendar
@@ -77,17 +87,20 @@ def load_calendar() -> pd.DataFrame:
 def load_price() -> pd.DataFrame:
     """Loads sell price dataset from CSV file"""
     try:
-        prices = pd.read_csv(PRICES_PATH, usecols=PRICE_COLUMNS)
+        prices = pd.read_csv(PRICES_PATH, usecols=settings.ingestion.price_columns)
     except FileNotFoundError:
-        print(f"Unable to read file: {PRICES_PATH}")
+        log.exception("Unable to read file: %s", PRICES_PATH)
         raise
 
-    print(f"Memory usage of prices dataset before downcasting: {memory_usage(prices)}")
+    log.info(
+        "Memory usage of prices dataset before downcasting: %s", memory_usage(prices)
+    )
 
     optimised_prices = get_optimised_data(prices)
 
-    print(
-        f"Memory usage of prices dataset after downcasting: {memory_usage(optimised_prices)}"
+    log.info(
+        "Memory usage of prices dataset after downcasting: %s",
+        memory_usage(optimised_prices),
     )
 
     return optimised_prices
@@ -113,7 +126,10 @@ def process_sales_chunk(
 
     daily_columns = [col for col in sales_chunk.columns if col.startswith("d_")]
     sales_long = sales_chunk.melt(
-        id_vars=ID_COLUMNS, value_vars=daily_columns, var_name="d", value_name="sales"
+        id_vars=settings.ingestion.id_columns,
+        value_vars=daily_columns,
+        var_name="d",
+        value_name="sales",
     )
 
     sales_long = pd.merge(
@@ -142,12 +158,12 @@ def process_sales_chunk(
     sales_long.drop(columns=["id", "snap_CA", "snap_TX", "snap_WI"], inplace=True)
     sales_long["sales"] = pd.to_numeric(sales_long["sales"], downcast="unsigned")
 
-    sales_long = sales_long[FINAL_COLUMNS]
+    sales_long = sales_long[settings.ingestion.final_columns]
 
     return sales_long
 
 
-def run_ingestion():
+def run():
     """Runs the sales data ingestion and transformation pipeline.
 
     Returns:
@@ -156,24 +172,28 @@ def run_ingestion():
 
     PROCESSED_DIR.mkdir(exist_ok=True)
 
-    print("Loading calendar and price dataset")
+    log.info("Loading calendar and price dataset")
 
     calendar = load_calendar()
-    validate_bronze_calendar(calendar, CALENDAR_COLUMNS, CALENDAR_ROWS)
+    validate_bronze_calendar(
+        calendar, settings.ingestion.calendar_columns, CALENDAR_ROWS
+    )
 
     prices = load_price()
-    validate_bronze_price(prices, PRICE_COLUMNS, PRICES_ROWS)
+    validate_bronze_price(prices, settings.ingestion.price_columns, PRICES_ROWS)
 
-    print("Bronze data quality checks completed")
+    log.info("Bronze data quality checks completed")
 
     total_rows = 0
     chunk_number = 0
     summary = {}
 
     try:
-        for sales_chunk in pd.read_csv(SALES_PATH, chunksize=CHUNK_SIZE):
-            print(
-                f"Processing chunk {chunk_number}: {len(sales_chunk)} sales chunk data"
+        for sales_chunk in pd.read_csv(SALES_PATH, chunksize=settings.data.chunk_size):
+            log.info(
+                "Processing chunk %d: %s sales chunk data",
+                chunk_number,
+                len(sales_chunk),
             )
 
             processed_chunk = process_sales_chunk(
@@ -189,15 +209,15 @@ def run_ingestion():
             chunk_rows = len(processed_chunk)
             total_rows += chunk_rows
 
-            print(f" {chunk_rows} processed rows")
-            print(f" saved to {OUTPUT_PATH}")
+            log.info(" %d processed rows", chunk_rows)
+            log.info(" saved to %s", OUTPUT_PATH)
 
             chunk_number += 1
 
             del sales_chunk
             del processed_chunk  # release memory
-    except Exception as e:
-        print(f"Failed to process file: {e}")
+    except Exception:
+        log.exception("Failed to process file")
         raise
 
     validated_silver_sales(SALES_MELTED_ROWS)
@@ -208,13 +228,13 @@ def run_ingestion():
         "output_path": OUTPUT_PATH,
     }
 
-    print("\n Ingestion complete")
-    print(f"Total processed rows from sales data: {total_rows}")
-    print(f"Number of parquet files: {chunk_number}")
-    print(f"processed files saved at {PROCESSED_DIR}")
+    log.info("\n Ingestion complete")
+    log.info("Total processed rows from sales data: %d", total_rows)
+    log.info("Number of parquet files: %d", chunk_number)
+    log.info("processed files saved at %s", PROCESSED_DIR)
 
     return summary
 
 
 if __name__ == "__main__":
-    run_ingestion()
+    run()

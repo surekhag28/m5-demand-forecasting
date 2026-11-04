@@ -1,0 +1,301 @@
+storage:
+  bucket: m5-data
+  bronze: bronze
+  silver: silver
+  gold: gold
+
+  sales_file: sales_train_evaluation.csv
+  cander_file: calendar.csv
+  price_file: sell_prices.csv
+
+
+
+data:
+  chunk_size: 1000
+
+  expected_row_counts:
+    calendar: 1969
+    prices: 6841121
+    sales_wide: 30490
+    sales_melted: 59181090
+
+  target: sales
+
+  series_keys:
+    - item_id
+    - store_id
+
+  forecast_horizon: 28
+  training_cutoff: 1913
+  n_folds: 3
+
+  training_window:
+    start_year: 2015 # 2013
+    end_year: 2016
+
+  stores:
+    - CA_1
+    - CA_2
+    - CA_3
+    - CA_4
+    - TX_1
+    - TX_2
+    - TX_3
+    - WI_1
+    - WI_2
+    - WI_3
+
+ingestion:
+  id_columns:
+    - id
+    - item_id
+    - dept_id
+    - cat_id
+    - store_id
+    - state_id
+
+  calendar_columns:
+    - d
+    - date
+    - wm_yr_wk
+    - weekday
+    - month
+    - year
+    - event_name_1
+    - event_type_1
+    - event_name_2
+    - event_type_2
+    - snap_CA
+    - snap_TX
+    - snap_WI
+
+  price_columns:
+    - store_id
+    - item_id
+    - wm_yr_wk
+    - sell_price
+
+  final_columns:
+    - item_id
+    - dept_id
+    - cat_id
+    - store_id
+    - state_id
+    - date
+    - wm_yr_wk
+    - d
+    - sales
+    - sell_price
+    - weekday
+    - month
+    - year
+    - event_name_1
+    - event_type_1
+    - event_name_2
+    - event_type_2
+    - snap
+
+features:
+  cat_cols:
+    - id
+    - item_id
+    - dept_id
+    - cat_id
+    - store_id
+    - state_id
+    - weekday
+    - event_name_1
+    - event_type_1
+
+  encodings:
+    item:
+      - item_id
+
+    store:
+      - store_id
+
+    item_store:
+      - item_id
+      - store_id
+
+    store_dept:
+      - store_id
+      - dept_id
+
+    store_cat:
+      - store_id
+      - cat_id
+
+  groups:
+    ids:
+      - item_id
+      - store_id
+      - state_id
+      - cat_id
+      - dept_id
+
+    weekly_pattern:
+      - day_of_week
+      - is_weekend
+
+    year:
+      - year
+
+    seasonality_month:
+      - month
+
+    seasonality_week:
+      - week_of_year
+
+    seasonality_dom:
+      - day_of_month
+
+    events:
+      - event_name_1
+      - event_type_1
+
+    snap:
+      - snap
+
+    price_level:
+      - sell_price
+      - price_max
+      - price_min
+      - price_mean
+      - price_norm
+      - price_unique_count
+
+    price_change:
+      - price_weekly_change
+      - price_change_m
+      - price_change_y
+
+    lags:
+      - lag_28
+      - lag_29
+      - lag_30
+      - lag_31
+      - lag_32
+      - lag_33
+      - lag_34
+      - lag_35
+      - lag_56
+
+    rolling_mean:
+      - rolling_mean_7
+      - rolling_mean_28
+      - rolling_mean_56
+      - rolling_positive_mean_7
+      - rolling_positive_mean_28
+      - rolling_positive_median_28
+      - rolling_positive_std_28
+      - rolling_positive_max_28
+
+    intermittency:
+      - rolling_positive_rate_7
+      - rolling_positive_rate_28
+      - rolling_zero_rate_28
+      - days_since_last_sale
+
+    enc_item_store:
+      - enc_item_mean
+      - enc_item_std
+      - enc_item_store_mean
+      - enc_item_store_std
+      - enc_store_mean
+      - enc_store_std
+      - enc_store_dept_mean
+      - enc_store_dept_std
+      - enc_store_cat_mean
+      - enc_store_cat_std
+
+    trends_position:
+      - trend_28_vs_long
+      - trend_7_vs_28
+      - trend_28_vs_56
+      - item_vs_dept
+      - item_vs_cat
+
+  experiment:
+    candidate_groups:
+      - ids
+      - weekly_pattern
+      - year
+      - seasonality_month
+      - seasonality_week
+      - seasonality_dom
+      - events
+      - snap
+      - price_level
+      - price_change
+      - lags
+      - rolling_mean
+      - intermittency
+      - enc_item_store
+      - trends_position
+
+    excluded_features:
+      - year
+      - weekday
+      # - item_id
+      # - store_id
+      # - state_id
+      # - cat_id
+      # - dept_id
+      # - sell_price
+      # - rolling_zero_rate_28
+
+  training:
+    global_model_name: lgb_global_final
+    recipe_path: configs/model_recipes/global_model.yaml
+
+training:
+  lgbm_params:
+    objective: tweedie
+    tweedie_variance_power: 1.1
+    learning_rate: 0.1
+    num_iterations: 500
+    num_leaves: 64
+    min_data_in_leaf: 2000
+    max_bin: 63
+    bagging_fraction: 1.0
+    bagging_freq: 0
+    feature_fraction: 1.0
+    force_col_wise: true
+    num_threads: 4
+    seed: 42
+    data_random_seed: 42
+    feature_fraction_seed: 42
+    bagging_seed: 42
+    verbosity: -1
+
+  store_lgbm_params:
+    objective: tweedie
+    tweedie_variance_power: 1.1
+    learning_rate: 0.05
+    num_iterations: 2000
+    num_leaves: 63
+    min_data_in_leaf: 300
+    max_bin: 63
+    bagging_fraction: 0.8
+    bagging_freq: 1
+    feature_fraction: 0.8
+    lambda_l2: 0.1
+    force_col_wise: true
+    num_threads: 4
+    seed: 42
+    data_random_seed: 42
+    feature_fraction_seed: 42
+    bagging_seed: 42
+    verbosity: -1
+
+  tree_grid:
+    - 100
+    - 200
+    - 300
+    - 400
+    - 500
+    - 750
+    - 1000
+    - 1500
+    - 2000

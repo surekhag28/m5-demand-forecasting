@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import duckdb
 import pandas as pd
 
-from src.config.config import PROCESSED_DIR
+from src.config.config import get_settings
+
+settings = get_settings()
+SILVER_BASE = Path(settings.storage.bucket) / settings.storage.silver
 
 
 def validate_bronze_calendar(
@@ -52,7 +57,7 @@ def validate_silver_sales_total_records(expected_rows: int) -> None:
             """
 
     sales_count = (
-        duckdb.connect().execute(query, [f"{PROCESSED_DIR}/*.parquet"]).fetchone()[0]
+        duckdb.connect().execute(query, [f"{SILVER_BASE}/*.parquet"]).fetchone()[0]
     )
 
     assert sales_count == expected_rows, (
@@ -70,9 +75,7 @@ def validate_silver_no_duplicates() -> None:
                     having count(*)>1
             """
 
-    duplicate = (
-        duckdb.connect().execute(query, [f"{PROCESSED_DIR}/*.parquet"]).fetchone()
-    )
+    duplicate = duckdb.connect().execute(query, [f"{SILVER_BASE}/*.parquet"]).fetchone()
 
     assert duplicate is None, (
         f"Silver DQ failed: duplicate key found at item - store - date level: {duplicate}"
@@ -90,7 +93,7 @@ def validate_silver_continuous_dates() -> None:
             """
 
     missing_dates = (
-        duckdb.connect().execute(query, [f"{PROCESSED_DIR}/*.parquet"]).fetchone()
+        duckdb.connect().execute(query, [f"{SILVER_BASE}/*.parquet"]).fetchone()
     )
 
     assert missing_dates is None, (
@@ -109,7 +112,7 @@ def validate_silver_invalid_sales() -> None:
         """
 
     invalid_sales = (
-        duckdb.connect().execute(query, [f"{PROCESSED_DIR}/*.parquet"]).fetchone()
+        duckdb.connect().execute(query, [f"{SILVER_BASE}/*.parquet"]).fetchone()
     )
 
     assert invalid_sales is None, (
@@ -127,7 +130,7 @@ def validate_silver_no_sales() -> None:
                     """
 
     null_sales = (
-        duckdb.connect().execute(query, [f"{PROCESSED_DIR}/*.parquet"]).fetchone()
+        duckdb.connect().execute(query, [f"{SILVER_BASE}/*.parquet"]).fetchone()
     )
 
     assert null_sales is None, (
@@ -146,7 +149,7 @@ def validate_silver_invalid_price() -> None:
         """
 
     invalid_price = (
-        duckdb.connect().execute(query, [f"{PROCESSED_DIR}/*.parquet"]).fetchone()
+        duckdb.connect().execute(query, [f"{SILVER_BASE}/*.parquet"]).fetchone()
     )
 
     assert invalid_price is None, (
@@ -156,7 +159,7 @@ def validate_silver_invalid_price() -> None:
 
 def validate_silver_null_price_before_launch() -> None:
 
-    parquet_path = f"{PROCESSED_DIR}/*.parquet"
+    parquet_path = f"{SILVER_BASE}/*.parquet"
 
     query = """
             with launch as (
@@ -205,7 +208,7 @@ def validate_silver_null_price_after_launch() -> None:
     """
 
     invalid_price = (
-        duckdb.connect().execute(query, [f"{PROCESSED_DIR}/*.parquet"]).fetchone()
+        duckdb.connect().execute(query, [f"{SILVER_BASE}/*.parquet"]).fetchone()
     )
 
     assert invalid_price is None, (

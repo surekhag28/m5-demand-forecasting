@@ -6,16 +6,21 @@ matplotlib.use("Agg")
 
 import hashlib
 import json
+import os
 import subprocess
 
 import lightgbm as lgb
 import matplotlib.pyplot as plt
 import mlflow
 import pandas as pd
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def configure_mlflow():
-    mlflow.set_tracking_uri("http://127.0.0.1:5000")
+    print(os.getenv("MLFLOW_TRACKING_URI"))
+    mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000"))
     mlflow.set_experiment("m5_retail_demand_forecasting")
 
 
@@ -53,14 +58,14 @@ def log_cv_setup(df, params, features, folds=None):
             "num_iterations": int(params["num_iterations"]),
             "feature_count": len(features),
             "cv_folds": len(folds) if folds is not None else 0,
-            "cv_stratgey": "time_series",
+            "cv_strategy": "time_series",
             "dataset_rows": len(df),
             "dataset_fingerprint": metadata_hash,
             "git_commit": get_git_commit(),
         }
     )
 
-    mlflow.set_tags({"stage": "baseline_cv", "dataset_fingerprint": metadata_hash})
+    mlflow.set_tags({"stage": "lgb_baseline_cv", "dataset_fingerprint": metadata_hash})
 
     mlflow.log_dict(metadata, "dataset/dataset_metadata.json")
     mlflow.log_dict({"features": list(features)}, "configuration/features.json")

@@ -1,273 +1,226 @@
+from __future__ import annotations
+
+from functools import lru_cache
 from pathlib import Path
+from typing import Any, Literal, Self
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+import yaml
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PositiveInt,
+    field_validator,
+    model_validator,
+)
 
-RAW_DIR = PROJECT_ROOT / "data" / "raw"
-PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
-GOLD_DIR = PROJECT_ROOT / "data" / "gold"
-
-SALES_PATH = RAW_DIR / "sales_train_evaluation.csv"
-CALENDAR_PATH = RAW_DIR / "calendar.csv"
-PRICES_PATH = RAW_DIR / "sell_prices.csv"
-
-RESULTS_PATH = PROJECT_ROOT / "data" / "results"
-
-
-SILVER_SALES_PATH = PROCESSED_DIR / "*.parquet"
-
-MODEL_DIR = PROJECT_ROOT / "models"
-GLOBAL_MODEL_NAME = "lgb_global_final"
-
-CHUNK_SIZE = 1000
-CALENDAR_ROWS = 1969
-PRICES_ROWS = 6841121
-SALES_ROWS = 30490
-SALES_MELTED_ROWS = 30490 * 1941
-
-ID_COLUMNS = [
-    "id",
-    "item_id",
-    "dept_id",
-    "cat_id",
-    "store_id",
-    "state_id",
-]
-
-CALENDAR_COLUMNS = [
-    "d",
-    "date",
-    "wm_yr_wk",
-    "weekday",
-    "month",
-    "year",
-    "event_name_1",
-    "event_type_1",
-    "event_name_2",
-    "event_type_2",
-    "snap_CA",
-    "snap_TX",
-    "snap_WI",
-]
-
-PRICE_COLUMNS = [
-    "store_id",
-    "item_id",
-    "wm_yr_wk",
-    "sell_price",
-]
-
-FINAL_COLUMNS = [
-    "item_id",
-    "dept_id",
-    "cat_id",
-    "store_id",
-    "state_id",
-    "date",
-    "wm_yr_wk",
-    "d",
-    "sales",
-    "sell_price",
-    "weekday",
-    "month",
-    "year",
-    "event_name_1",
-    "event_type_1",
-    "event_name_2",
-    "event_type_2",
-    "snap",
-]
-
-# ------- TRAINING CONFIG
-
-START_YEAR = 2013
-END_YEAR = 2016
-N_FOLDS = 3
-FORECAST_HORIZON = 28
-CUTOFF = 1913  # last training data point
-FINAL_TRAIN_CUTOFF = 1941
-
-KEY = ["item_id", "store_id"]
-TARGET = "sales"
-
-CAT_COLS = [
-    "id",
-    "item_id",
-    "dept_id",
-    "cat_id",
-    "store_id",
-    "state_id",
-    "weekday",
-    "event_name_1",
-    "event_type_1",
-]
-
-GROUP_ENC = {
-    "item": "item_id",
-    "store": "store_id",
-    "item_store": "item_id, store_id",
-    "store_dept": "store_id, dept_id",
-    "store_cat": "store_id, cat_id",
-}
-
-FEATURES = [
-    # "item_id",  # --
-    # "store_id",  # --
-    # "state_id",  # --
-    # "cat_id",  # --
-    # "dept_id",  # --
-    "month",
-    # "year",
-    # "weekday",
-    "week_of_year",
-    "day_of_week",
-    "day_of_month",
-    "is_weekend",
-    # "sell_price",  # --
-    "event_name_1",
-    "event_type_1",
-    "snap",
-    "lag_28",
-    "lag_29",
-    "lag_30",
-    "lag_31",
-    "lag_32",
-    "lag_33",
-    "lag_34",
-    "lag_35",
-    "lag_56",
-    "rolling_positive_rate_7",
-    "rolling_positive_rate_28",
-    # "rolling_zero_rate_28",  # --
-    "days_since_last_sale",
-    "rolling_mean_7",
-    "rolling_mean_28",
-    "rolling_mean_56",
-    "rolling_positive_mean_7",
-    "rolling_positive_mean_28",
-    "rolling_positive_median_28",
-    "rolling_positive_std_28",
-    "rolling_positive_max_28",
-    "price_unique_count",
-    "price_max",
-    "price_min",
-    "price_mean",
-    "price_norm",
-    "price_weekly_change",
-    "price_change_m",
-    "price_change_y",
-    "enc_item_mean",
-    "enc_store_mean",
-    "enc_item_store_mean",
-    "enc_store_dept_mean",
-    "enc_store_cat_mean",
-    "enc_item_std",
-    "enc_store_std",
-    "enc_item_store_std",
-    "enc_store_dept_std",
-    "enc_store_cat_std",
-    "trend_28_vs_long",
-    "trend_7_vs_28",
-    "trend_28_vs_56",
-    "item_vs_dept",
-    "item_vs_cat",
-]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.yaml"
 
 
-STATES = ["CA", "TX", "WI"]
-STORES = [
-    "CA_1",
-    "CA_2",
-    "CA_3",
-    "CA_4",
-    "TX_1",
-    "TX_2",
-    "TX_3",
-    "WI_1",
-    "WI_2",
-    "WI_3",
-]
+class StrictConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-FEATURE_GROUPS = {
-    # "ids": ["item_id", "store_id", "state_id", "cat_id", "dept_id"], #--
-    # calendar
-    "weekly_pattern": ["day_of_week", "is_weekend"],
-    # "year": ["year"],
-    "seasonality_month": ["month"],
-    "seasonality_week": ["week_of_year"],
-    "seasonality_dom": ["day_of_month"],
-    "events": ["event_name_1", "event_type_1"],
-    "snap": ["snap"],
-    "price_level": [
-        "sell_price",  # --
-        "price_max",
-        "price_min",
-        "price_mean",
-        "price_norm",
-        "price_unique_count",
-    ],
-    "price_change": [
-        "price_weekly_change",
-        "price_change_m",
-        "price_change_y",
-    ],
-    "lags": [
-        "lag_28",
-        "lag_29",
-        "lag_30",
-        "lag_31",
-        "lag_32",
-        "lag_33",
-        "lag_34",
-        "lag_35",
-        "lag_56",
-        "rolling_mean_7",
-        "rolling_mean_28",
-        "rolling_mean_56",
-        "rolling_positive_mean_7",
-        "rolling_positive_mean_28",
-        "rolling_positive_median_28",
-        "rolling_positive_std_28",
-        "rolling_positive_max_28",
-    ],
-    # ----------
-    # "rolling_mean": [
-    #     "rolling_mean_7",
-    #     "rolling_mean_28",
-    #     "rolling_mean_56",
-    #     "rolling_positive_mean_7",
-    #     "rolling_positive_mean_28",
-    #     "rolling_positive_median_28",
-    #     "rolling_positive_std_28",
-    #     "rolling_positive_max_28",
-    # ],
-    "intermittency": [
-        "rolling_positive_rate_7",
-        "rolling_positive_rate_28",
-        "rolling_zero_rate_28",  # --
-        "days_since_last_sale",
-    ],
-    "enc_item_store": [
-        "enc_item_mean",
-        "enc_item_std",
-        "enc_item_store_mean",
-        "enc_item_store_std",
-        "enc_store_mean",
-        "enc_store_std",
-        "enc_store_dept_mean",
-        "enc_store_dept_std",
-        "enc_store_cat_mean",
-        "enc_store_cat_std",
-    ],
-    "trends_position": [
-        "trend_28_vs_long",
-        "trend_7_vs_28",
-        "trend_28_vs_56",
-        "item_vs_dept",
-        "item_vs_cat",
-    ],
-}
+class ExpectedRowCounts(StrictConfig):
+    calendar: PositiveInt
+    prices: PositiveInt
+    sales_wide: PositiveInt
+    sales_melted: PositiveInt
 
-# HPO
 
-N_TRIALS = 30
+class TrainingWindow(StrictConfig):
+    start_year: PositiveInt = Field(
+        description="First year included in the training window"
+    )
+    end_year: PositiveInt = Field(
+        description="Last year included in the training window"
+    )
+
+    @model_validator(mode="after")
+    def validate_year_range(self) -> Self:
+        if self.start_year >= self.end_year:
+            raise ValueError("start_year must be less than end_year")
+
+        return self
+
+
+class DataSettings(StrictConfig):
+    chunk_size: PositiveInt = Field(
+        default=1000,
+        gt=0,
+        description="Number of records processed per ingestion chunk",
+    )
+    expected_row_counts: ExpectedRowCounts
+    target: str = Literal["sales"]
+    series_keys: list[Literal["item_id", "store_id"]] = Field(
+        description="Required columns identifying item-store series"
+    )
+    forecast_horizon: PositiveInt = Field(
+        description="Number of future days to forecast"
+    )
+    training_cutoff: PositiveInt = Field(
+        description="Last training index in the dataset"
+    )
+    n_folds: PositiveInt
+    training_window: TrainingWindow
+    stores: list[str]
+
+    @field_validator("series_keys")
+    @classmethod
+    def validate_keys(
+        cls, columns: list[Literal["item_id", "store_id"]]
+    ) -> list[Literal["item_id", "store_id"]]:
+        if set(columns) != {"item_id", "store_id"}:
+            raise ValueError(
+                "series_keys must contain item_id and store_id to identify series"
+            )
+
+        return columns
+
+
+class IngestionSettings(StrictConfig):
+    id_columns: list[str] = Field(min_length=1)
+    calendar_columns: list[str] = Field(min_length=1)
+    price_columns: list[str] = Field(min_length=1)
+    final_columns: list[str] = Field(min_length=1)
+
+    @field_validator("id_columns", "calendar_columns", "price_columns", "final_columns")
+    @classmethod
+    def validate_columns(cls, columns: list[str]) -> list[str]:
+        if any(not col.strip() for col in columns):
+            raise ValueError("Column names cannot be empty")
+
+        if len(columns) != len(set(columns)):
+            raise ValueError("Column names need to be unique")
+
+        return columns
+
+    @model_validator(mode="after")
+    def validate_final_schema(self) -> Self:
+        required_cols = {
+            "item_id",
+            "store_id",
+            "date",
+            "d",
+            "sales",
+            "sell_price",
+            "snap",
+        }
+
+        missing = required_cols - set(self.final_columns)
+
+        if missing:
+            raise ValueError(f"final_columns is missing {sorted(missing)} columns")
+
+        return self
+
+
+class FeatureExperimentSettings(StrictConfig):
+    candidate_groups: list[str] = Field(
+        min_length=1, description="Candidate features used for training the model"
+    )
+    excluded_features: list[str] = Field(
+        description="Features excluded from training list"
+    )
+
+
+class FeatureTrainingSettings(StrictConfig):
+    global_model_name: str
+    recipe_path: Path
+
+
+class FeatureSettings(StrictConfig):
+    cat_cols: list[str]
+    encodings: dict[str, list[str]]
+    groups: dict[str, list[str]]
+    experiment: FeatureExperimentSettings
+    training: FeatureTrainingSettings
+
+
+class StorageSettings(StrictConfig):
+    bucket: str = Field(description="Storage bucket or container name")
+    bronze: str = Field(description="Location to store raw data")
+    silver: str = Field(description="Location to store processed data")
+    gold: str = Field(description="Location to store features data for model training")
+
+    sales_file: str
+    cander_file: str
+    price_file: str
+
+
+class TrainingSettings(StrictConfig):
+    lgbm_params: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "objective": "tweedie",
+            "tweedie_variance_power": 1.1,
+            "learning_rate": 0.1,
+            "num_iterations": 500,
+            "num_leaves": 64,
+            "min_data_in_leaf": 2000,
+            "max_bin": 63,
+            "bagging_fraction": 1.0,
+            "bagging_freq": 0,
+            "feature_fraction": 1.0,
+            "force_col_wise": True,
+            "num_threads": 4,
+            "seed": 42,
+            "data_random_seed": 42,
+            "feature_fraction_seed": 42,
+            "bagging_seed": 42,
+            "verbosity": -1,
+        }
+    )
+
+    store_lgbm_params: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "objective": "tweedie",
+            "tweedie_variance_power": 1.1,
+            "learning_rate": 0.05,
+            "num_iterations": 2000,
+            "num_leaves": 63,
+            "min_data_in_leaf": 300,
+            "max_bin": 63,
+            "bagging_fraction": 0.8,
+            "bagging_freq": 1,
+            "feature_fraction": 0.8,
+            "lambda_l2": 0.1,
+            "force_col_wise": True,
+            "num_threads": 4,
+            "seed": 42,
+            "data_random_seed": 42,
+            "feature_fraction_seed": 42,
+            "bagging_seed": 42,
+            "verbosity": -1,
+        }
+    )
+
+    tree_grid: list[int] = Field(
+        default_factory=lambda: [100, 200, 300, 400, 500, 750, 1000, 1500, 2000]
+    )
+
+
+class Settings(StrictConfig):
+    storage: StorageSettings
+    data: DataSettings
+    ingestion: IngestionSettings
+    features: FeatureSettings
+    training: TrainingSettings
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    if not SETTINGS_PATH.is_file():
+        raise FileNotFoundError(f"Configuration file not found: {SETTINGS_PATH}")
+
+    with SETTINGS_PATH.open(mode="r", encoding="utf-8") as file:
+        raw_config = yaml.safe_load(file)
+
+    if not isinstance(raw_config, dict):
+        raise ValueError("Configuration file must contain a YAML mapping.")
+
+    return Settings.model_validate(raw_config)
+
+
+settings = get_settings()
+print(settings.ingestion.id_columns)

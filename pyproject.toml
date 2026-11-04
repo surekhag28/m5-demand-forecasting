@@ -14,6 +14,7 @@ dependencies = [
     "numpy>=2.5.3",
     "optuna>=5.0.0",
     "pandas>=3.0.5",
+    "pandera>=0.35.0",
     "polars>=1.44.2",
     "pyarrow>=25.0.1",
     "scikit-learn>=1.9.0",
