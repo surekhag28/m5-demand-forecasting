@@ -20,3 +20,14 @@ artifacts/
 mlflow.db
 mlruns/
 artifacts/mlflow/
+
+.env
+.python-version
+
+m5-data/
+models/
+artifacts/
+mlartifacts/
+mlruns/
+
+
