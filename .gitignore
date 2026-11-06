@@ -1,0 +1,33 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+data/
+
+.DS_Store
+
+# Generated prediction artifacts
+artifacts/*.csv
+artifacts/*.parquet
+artifacts/
+
+mlflow.db
+mlruns/
+artifacts/mlflow/
+
+.env
+.python-version
+
+m5-data/
+models/
+artifacts/
+mlartifacts/
+mlruns/
+
+

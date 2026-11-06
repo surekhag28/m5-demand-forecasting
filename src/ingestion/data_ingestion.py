@@ -1,0 +1,240 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from src.config.config import get_settings
+from src.config.exp_config import (
+    CALENDAR_ROWS,
+    PRICES_ROWS,
+    SALES_MELTED_ROWS,
+)
+from src.data_quality.checks import (
+    validate_bronze_calendar,
+    validate_bronze_price,
+    validated_silver_sales,
+)
+from src.utils.logging_utils import get_logger, setup_logging
+from src.utils.utils import memory_usage
+
+setup_logging(level="INFO", fmt="text")
+log = get_logger(__name__)
+
+settings = get_settings()
+
+BUCKET = Path(settings.storage.bucket)
+BRONZE_BASE = BUCKET / settings.storage.bronze
+CALENDAR_PATH = BRONZE_BASE / settings.storage.cander_file
+PRICES_PATH = BRONZE_BASE / settings.storage.price_file
+SALES_PATH = BRONZE_BASE / settings.storage.sales_file
+PROCESSED_DIR = Path(settings.storage.silver)
+
+
+def get_optimised_data(data: pd.DataFrame) -> pd.DataFrame:
+
+    dtype_mapping = {"float": "float", "int": "unsigned"}
+
+    optimised_data = data.copy()
+
+    for dtype in ["float", "int", "str"]:
+        if dtype == "float" or dtype == "int":
+            data_dtype = data.select_dtypes(include=dtype)
+            data_converted_dtype = data_dtype.apply(
+                pd.to_numeric, downcast=dtype_mapping[dtype]
+            )
+        else:
+            obj_columns = data.select_dtypes(include=["str"]).columns.to_list()
+            for col in obj_columns:
+                optimised_data[col] = data[col].astype("category")
+
+        optimised_data[data_converted_dtype.columns] = data_converted_dtype
+
+    return optimised_data
+
+
+def load_calendar() -> pd.DataFrame:
+    """Loads calendar dataset from CSV file"""
+    try:
+        calendar = pd.read_csv(
+            CALENDAR_PATH, usecols=settings.ingestion.calendar_columns
+        )
+    except FileNotFoundError:
+        log.exception("Unable to read file: %s", CALENDAR_PATH)
+        raise
+
+    log.info(
+        "Memory usage of calendar dataset before downcasting: %s",
+        memory_usage(calendar),
+    )
+
+    calendar["date"] = pd.to_datetime(calendar["date"])
+    calendar["event_type_1"] = calendar["event_type_1"].fillna("No Event")
+    calendar["event_type_2"] = calendar["event_type_2"].fillna("No Event")
+    calendar["event_name_1"] = calendar["event_name_1"].fillna("No Event")
+    calendar["event_name_2"] = calendar["event_name_2"].fillna("No Event")
+
+    optimsed_calendar = get_optimised_data(calendar)
+
+    log.info(
+        "Memory usage of calendar dataset after downcasting: %s", memory_usage(calendar)
+    )
+
+    return optimsed_calendar
+
+
+def load_price() -> pd.DataFrame:
+    """Loads sell price dataset from CSV file"""
+    try:
+        prices = pd.read_csv(PRICES_PATH, usecols=settings.ingestion.price_columns)
+    except FileNotFoundError:
+        log.exception("Unable to read file: %s", PRICES_PATH)
+        raise
+
+    log.info(
+        "Memory usage of prices dataset before downcasting: %s", memory_usage(prices)
+    )
+
+    optimised_prices = get_optimised_data(prices)
+
+    log.info(
+        "Memory usage of prices dataset after downcasting: %s",
+        memory_usage(optimised_prices),
+    )
+
+    return optimised_prices
+
+
+def process_sales_chunk(
+    sales_chunk: pd.DataFrame, calendar: pd.DataFrame, prices: pd.DataFrame
+):
+    """Transforms historical sales data from wide to analysis ready format.
+
+    Args:
+        sales_chunk (pd.DataFrame): Chunk of historical sales data in wide format, containing item-store identifiers and daily sales columns.
+        calendar (pd.DataFrame): Calendar data containing dates, weeks identifiers, events and state-level snap indicators.
+        prices (pd.DataFrame): weekly sell-price data for item x store combinations.
+
+    Returns:
+        pd.DataFrame: Transformed sales data in long format, with one row per item-store-day observation and
+                        enriched with calendar and price attributes.
+
+    Returns:
+        pd.Data
+    """
+
+    daily_columns = [col for col in sales_chunk.columns if col.startswith("d_")]
+    sales_long = sales_chunk.melt(
+        id_vars=settings.ingestion.id_columns,
+        value_vars=daily_columns,
+        var_name="d",
+        value_name="sales",
+    )
+
+    sales_long = pd.merge(
+        sales_long, calendar, on="d", how="left", validate="many_to_one"
+    )
+
+    sales_long["snap"] = np.select(
+        [
+            sales_long["state_id"] == "CA",
+            sales_long["state_id"] == "TX",
+            sales_long["state_id"] == "WI",
+        ],
+        [sales_long["snap_CA"], sales_long["snap_TX"], sales_long["snap_WI"]],
+    )
+
+    sales_long["d"] = sales_long["d"].str.replace("d_", "", regex=False).astype("int32")
+
+    sales_long = pd.merge(
+        sales_long,
+        prices,
+        on=["store_id", "item_id", "wm_yr_wk"],
+        how="left",
+        validate="many_to_one",
+    )
+
+    sales_long.drop(columns=["id", "snap_CA", "snap_TX", "snap_WI"], inplace=True)
+    sales_long["sales"] = pd.to_numeric(sales_long["sales"], downcast="unsigned")
+
+    sales_long = sales_long[settings.ingestion.final_columns]
+
+    return sales_long
+
+
+def run():
+    """Runs the sales data ingestion and transformation pipeline.
+
+    Returns:
+        dict[str,Any]: Summary of the ingestion run pipeline.
+    """
+
+    PROCESSED_DIR.mkdir(exist_ok=True)
+
+    log.info("Loading calendar and price dataset")
+
+    calendar = load_calendar()
+    validate_bronze_calendar(
+        calendar, settings.ingestion.calendar_columns, CALENDAR_ROWS
+    )
+
+    prices = load_price()
+    validate_bronze_price(prices, settings.ingestion.price_columns, PRICES_ROWS)
+
+    log.info("Bronze data quality checks completed")
+
+    total_rows = 0
+    chunk_number = 0
+    summary = {}
+
+    try:
+        for sales_chunk in pd.read_csv(SALES_PATH, chunksize=settings.data.chunk_size):
+            log.info(
+                "Processing chunk %d: %s sales chunk data",
+                chunk_number,
+                len(sales_chunk),
+            )
+
+            processed_chunk = process_sales_chunk(
+                sales_chunk=sales_chunk, calendar=calendar, prices=prices
+            )
+
+            processed_chunk = get_optimised_data(processed_chunk)
+
+            OUTPUT_PATH = PROCESSED_DIR / f"part_{chunk_number:04d}.parquet"
+
+            processed_chunk.to_parquet(OUTPUT_PATH, index=False)
+
+            chunk_rows = len(processed_chunk)
+            total_rows += chunk_rows
+
+            log.info(" %d processed rows", chunk_rows)
+            log.info(" saved to %s", OUTPUT_PATH)
+
+            chunk_number += 1
+
+            del sales_chunk
+            del processed_chunk  # release memory
+    except Exception:
+        log.exception("Failed to process file")
+        raise
+
+    validated_silver_sales(SALES_MELTED_ROWS)
+
+    summary = {
+        "total_sales_data": total_rows,
+        "no_of_parquet_files": chunk_number,
+        "output_path": OUTPUT_PATH,
+    }
+
+    log.info("\n Ingestion complete")
+    log.info("Total processed rows from sales data: %d", total_rows)
+    log.info("Number of parquet files: %d", chunk_number)
+    log.info("processed files saved at %s", PROCESSED_DIR)
+
+    return summary
+
+
+if __name__ == "__main__":
+    run()
